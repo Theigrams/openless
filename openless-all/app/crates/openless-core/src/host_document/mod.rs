@@ -16,11 +16,12 @@ pub use window::{
     plan_window, utf16_offset_to_char_offset, window_around_cursor, window_from_split, WindowSpan,
 };
 
-pub const WINDOW_CONTEXT_PROMPT_CHARS: usize = 3_500;
+pub const WINDOW_CONTEXT_PROMPT_CHARS: usize = 10_000;
+const MAX_WINDOW_SCREENSHOT_THRESHOLD: u32 = 3_500;
 pub const DEFAULT_WINDOW_SCREENSHOT_THRESHOLD: u32 = 300;
 
 pub fn clamp_window_screenshot_threshold(threshold: u32) -> u32 {
-    threshold.clamp(1, WINDOW_CONTEXT_PROMPT_CHARS as u32)
+    threshold.clamp(1, MAX_WINDOW_SCREENSHOT_THRESHOLD)
 }
 
 pub fn window_text_meets_screenshot_threshold(text: &str, threshold: u32) -> bool {

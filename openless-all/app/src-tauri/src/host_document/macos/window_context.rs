@@ -1,22 +1,20 @@
 //! Bounded AX snapshot of the visible foreground window outside the input field.
 
-use std::collections::HashSet;
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
 
 use core_foundation::array::{CFArray, CFArrayRef};
-use core_foundation::base::TCFType;
-use core_foundation::boolean::CFBoolean;
+use core_foundation::base::{CFRange, TCFType};
+use core_foundation::string::{CFString, CFStringGetCharacters};
 use core_foundation::url::{CFURLRef, CFURL};
 use core_graphics::geometry::{CGPoint, CGRect, CGSize};
 use openless_core::host_document::{
     window_text_meets_screenshot_threshold, WindowCapture, WindowCaptureMode, WindowContext,
-    WindowScreenshot, WINDOW_CONTEXT_PROMPT_CHARS,
-    WINDOW_SCREENSHOT_MAX_BYTES,
+    WindowScreenshot, WINDOW_CONTEXT_PROMPT_CHARS, WINDOW_SCREENSHOT_MAX_BYTES,
 };
 
 use super::{
-    cfstring_from_static, cfstring_to_rust, copy_attr, copy_element_attr, copy_string_attr,
+    cfstring_to_rust, copy_attr, copy_element_attr, copy_string_attr,
     focused_element_passing_the_gate_with_timeout, AXUIElementCreateApplication, AXUIElementGetPid,
     AXUIElementSetMessagingTimeout, AXValueGetValue, AxError, AxUiElementRef, CFEqual, CFGetTypeID,
     CFRelease, CFStringGetLength, CFStringGetTypeID, CFStringRef, CFTypeId, GateInputs,
@@ -27,11 +25,25 @@ use crate::selection::{self, SelectionInsertionTarget};
 
 const CAPTURE_BUDGET: Duration = Duration::from_millis(600);
 const MESSAGE_TIMEOUT: f32 = 0.035;
-// Desktop web views can nest their document beyond 24 wrapper levels.
-const MAX_NODES: usize = 1_536;
-const MAX_DEPTH: usize = 48;
-const MAX_CHILDREN: isize = 128;
-const MAX_TEXT_CHARS: usize = 10_000;
+const TEXT_BUDGET: Duration = Duration::from_millis(500);
+const MAX_DEPTH: usize = 50;
+const MAX_WEB_AREA_DEPTH: usize = 10;
+const BROWSER_BUNDLE_PREFIXES: &[&str] = &[
+    "com.google.Chrome",
+    "com.apple.Safari",
+    "com.microsoft.edgemac",
+    "org.mozilla.firefox",
+    "org.mozilla.nightly",
+    "com.operasoftware.Opera",
+    "org.chromium.Chromium",
+    "com.openai.atlas",
+    "company.thebrowser.Browser",
+    "ai.perplexity.comet",
+    "com.brave.Browser",
+    "com.vivaldi.Vivaldi",
+    "com.duckduckgo.macos.browser",
+    "com.kagi.kagimacOS",
+];
 const AX_VALUE_CGPOINT: i32 = 1;
 const AX_VALUE_CGSIZE: i32 = 2;
 static CAPTURE_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
@@ -40,16 +52,10 @@ static CAPTURE_SLOT: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(
 extern "C" {
     fn AXUIElementGetTypeID() -> CFTypeId;
     fn AXValueGetTypeID() -> CFTypeId;
-    fn AXUIElementGetAttributeValueCount(
+    fn AXUIElementCopyMultipleAttributeValues(
         element: AxUiElementRef,
-        attribute: CFStringRef,
-        count: *mut isize,
-    ) -> AxError;
-    fn AXUIElementCopyAttributeValues(
-        element: AxUiElementRef,
-        attribute: CFStringRef,
-        index: isize,
-        count: isize,
+        attributes: CFArrayRef,
+        options: u32,
         values: *mut CFArrayRef,
     ) -> AxError;
 }
@@ -88,7 +94,7 @@ pub(crate) async fn read_window_context(
     screenshot_threshold: u32,
 ) -> Option<WindowCapture> {
     if mode == WindowCaptureMode::Text {
-        return capture_for_target(target, WINDOW_CONTEXT_PROMPT_CHARS)
+        return capture_for_target(target)
             .await
             .ok()
             .map(WindowCapture::Text);
@@ -101,7 +107,7 @@ pub(crate) async fn read_window_context(
         let _permit = permit;
         let focus = unsafe { focused_window(&start_target, deadline) }?;
         let text = if mode == WindowCaptureMode::TextWithScreenshotFallback {
-            match unsafe { capture(&start_target, &focus, deadline, WINDOW_CONTEXT_PROMPT_CHARS) } {
+            match unsafe { capture(&start_target, &focus, deadline) } {
                 Ok(text) => Some(text),
                 Err(Unavailable("no_visible_text") | Timeout) => None,
                 Err(error) => return Err(error),
@@ -168,7 +174,7 @@ pub(crate) async fn probe_window_context() -> HostDocumentReadResult<WindowConte
     let target = selection::capture_selection_insertion_target();
     let app_name = selection::front_app_for_target(&target);
     let bundle_id = selection::bundle_id_for_target(&target);
-    let mut result = match capture_for_target(target, MAX_TEXT_CHARS).await {
+    let mut result = match capture_for_target(target).await {
         Ok(window) => HostDocumentReadResult {
             window: Some(window),
             ..HostDocumentReadResult::new(HostDocumentStatus::Ok, None)
@@ -199,7 +205,6 @@ use CaptureError::{Blocked, Timeout, Unavailable};
 
 async fn capture_for_target(
     target: SelectionInsertionTarget,
-    text_limit: usize,
 ) -> Result<WindowContext, CaptureError> {
     let permit = CAPTURE_SLOT
         .try_acquire()
@@ -209,7 +214,7 @@ async fn capture_for_target(
         let _permit = permit;
         unsafe {
             let focus = focused_window(&target, deadline)?;
-            capture(&target, &focus, deadline, text_limit)
+            capture(&target, &focus, deadline)
         }
     });
     tokio::time::timeout(CAPTURE_BUDGET, task)
@@ -304,21 +309,17 @@ unsafe fn capture(
     target: &SelectionInsertionTarget,
     focus: &FocusedWindow,
     deadline: Instant,
-    text_limit: usize,
 ) -> Result<WindowContext, CaptureError> {
-    let FocusedWindow { focused, window, bounds, pid, .. } = focus;
-    let focus_y = frame(focused).map(|frame| frame.origin.y + frame.size.height / 2.0);
-    let domain = page_domain(focused, *pid, deadline);
-    let title = bounded_text(window, b"AXTitle\0", 256);
-    let visible_text = visible_text(
-        window,
-        focused,
-        *bounds,
-        focus_y,
-        *pid,
-        deadline,
-        text_limit,
-    );
+    let domain = page_domain(&focus.focused, focus.pid, deadline);
+    let title = bounded_text(&focus.window, b"AXTitle\0", 256);
+    let browser = selection::bundle_id_for_target(target).is_some_and(|bundle| {
+        BROWSER_BUNDLE_PREFIXES
+            .iter()
+            .any(|prefix| bundle.starts_with(prefix))
+    });
+    // Leave the rest of the request budget for the final focus and secure-input checks.
+    let walk_deadline = deadline - (CAPTURE_BUDGET - TEXT_BUDGET);
+    let visible_text = visible_text(focus, browser, walk_deadline);
 
     if visible_text.is_empty() {
         return Err(Unavailable("no_visible_text"));
@@ -339,189 +340,197 @@ unsafe fn capture(
     })
 }
 
-unsafe fn visible_text(
-    window: &SendableElement,
-    focused: &SendableElement,
-    window_rect: CGRect,
-    focus_y: Option<f64>,
-    pid: i32,
+unsafe fn visible_text(focus: &FocusedWindow, browser: bool, deadline: Instant) -> String {
+    let web_area = if browser {
+        find_web_area(&focus.window, focus.pid, deadline, 0)
+    } else {
+        None
+    };
+    let structure_attrs =
+        CFArray::from_CFTypes(&["AXRole", "AXSubrole", "AXChildren"].map(CFString::new));
+    let message_attrs =
+        CFArray::from_CFTypes(&["AXIdentifier", "AXValue", "AXTitle"].map(CFString::new));
+    let mut collector = TextCollector {
+        focus,
+        structure_attrs,
+        message_attrs,
+        deadline,
+        remaining: WINDOW_CONTEXT_PROMPT_CHARS,
+        text: String::new(),
+        previous_is_text: false,
+    };
+    collector.visit(web_area.as_ref().unwrap_or(&focus.window), 0);
+    collector.text
+}
+
+struct TextCollector<'a> {
+    focus: &'a FocusedWindow,
+    structure_attrs: CFArray<CFString>,
+    message_attrs: CFArray<CFString>,
     deadline: Instant,
-    text_limit: usize,
-) -> String {
-    let focus_path = focused_ancestors(window, focused, pid, deadline);
-    let mut stack = vec![(window.clone(), window_rect, 0, false)];
-    let mut seen = HashSet::new();
-    let mut fragments = Vec::new();
-    // Reserve time for the final identity checks. Return the text collected so far.
-    let walk_deadline = deadline - Duration::from_millis(65);
-    for _ in 0..MAX_NODES {
-        if Instant::now() >= walk_deadline {
-            break;
-        }
-        let Some((element, clip, depth, in_document_editor)) = stack.pop() else {
-            break;
-        };
-        if !owned_by(&element, pid) {
-            continue;
+    remaining: usize,
+    text: String,
+    previous_is_text: bool,
+}
+
+impl TextCollector<'_> {
+    unsafe fn visit(&mut self, element: &SendableElement, depth: usize) {
+        if self.finished() || depth >= MAX_DEPTH || !owned_by(element, self.focus.pid) {
+            return;
         }
         AXUIElementSetMessagingTimeout(element.as_ref(), MESSAGE_TIMEOUT);
-        let Some(role) = copy_string_attr(element.as_ref(), b"AXRole\0") else {
-            continue;
+        let Some(attrs) = copy_attributes(element, self.structure_attrs.as_concrete_TypeRef())
+        else {
+            return;
         };
-        // Document editors such as Notion expose separate paragraphs as text areas.
-        // Keep the active input (and its ancestors) out of the window snapshot.
-        let is_text_area = role == "AXTextArea";
-        let subrole = is_text_area
-            .then(|| copy_string_attr(element.as_ref(), b"AXSubrole\0"))
-            .flatten();
-        let is_document_editor = is_text_area && subrole.as_deref() == Some("AXApplicationGroup");
-        let is_text_input = is_text_area && !is_document_editor;
-        if is_text_area
-            && ((is_text_input
-                && (!in_document_editor
-                    || focus_path.iter().any(|node| same_element(node, &element))))
-                || crate::host_document::evaluate_gate(&GateInputs {
-                    role: Some(role.clone()),
-                    subrole,
-                    ..GateInputs::default()
+        let role = attrs.get(0).and_then(|value| string_prefix(*value, 128));
+        let subrole = attrs.get(1).and_then(|value| string_prefix(*value, 128));
+        let document_editor = subrole.as_deref() == Some("AXApplicationGroup");
+        if crate::host_document::evaluate_gate(&GateInputs {
+            role: role.clone(),
+            subrole,
+            ..GateInputs::default()
+        })
+        .is_some()
+        {
+            self.previous_is_text = false;
+            return;
+        }
+        let role = role.as_deref().unwrap_or_default();
+        let is_input = matches!(
+            role,
+            "AXTextField" | "AXComboBox" | "AXSearchField" | "AXTextArea"
+        );
+        let focused_input = is_input && same_element(element, &self.focus.focused);
+        if focused_input && !document_editor {
+            self.previous_is_text = false;
+            return;
+        }
+
+        // As in Typeless, nodes without text still delimit consecutive static text.
+        let text = match role {
+            "AXTextField" | "AXTextArea" | "AXSearchField" | "AXComboBox" | "AXStaticText"
+                if !focused_input =>
+            {
+                copy_attr(element.as_ref(), b"AXValue\0").and_then(|value| {
+                    let text = string_prefix(value, self.remaining);
+                    CFRelease(value);
+                    text
                 })
-                .is_some())
-        {
-            continue;
-        }
-        if matches!(
-            role.as_str(),
-            "AXTextField"
-                | "AXComboBox"
-                | "AXSearchField"
-                | "AXSecureTextField"
-                | "AXToolbar"
-                | "AXMenuBar"
-                | "AXMenu"
-                | "AXTab"
-                | "AXRadioButton"
-        ) || (!is_text_area && bool_attr(&element, b"AXEditable\0"))
-            || bool_attr(&element, b"AXHidden\0")
-        {
-            continue;
-        }
-        if matches!(role.as_str(), "AXGroup" | "AXList" | "AXRow")
-            && frame(&element).is_some_and(|bounds| {
-                bounds.size.width <= 1.0
-                    || bounds.size.height <= 1.0
-                    || intersect(clip, bounds).is_none()
-            })
-        {
-            continue;
-        }
-        if is_text_input || matches!(role.as_str(), "AXStaticText" | "AXHeading") {
-            // Web views can clamp offscreen text to a one-pixel box at the scroll boundary.
-            let Some(bounds) = frame(&element).filter(|bounds| {
-                bounds.size.width > 1.0 && bounds.size.height > 1.0 && contains_rect(clip, *bounds)
-            }) else {
-                continue;
-            };
-            let text = bounded_text(&element, b"AXValue\0", MAX_TEXT_CHARS)
-                .or_else(|| bounded_text(&element, b"AXTitle\0", MAX_TEXT_CHARS));
-            if let Some(text) = text.filter(|text| seen.insert(text.clone())) {
-                let y = bounds.origin.y + bounds.size.height / 2.0;
-                fragments.push((focus_y.map_or(0.0, |focus| (focus - y).abs()), text));
             }
-            if is_text_input || role == "AXStaticText" {
-                continue;
-            }
-        }
-        if depth == MAX_DEPTH {
-            continue;
-        }
-        let is_scroll_area = role == "AXScrollArea";
-        let child_clip = if is_scroll_area {
-            let Some(intersection) = frame(&element).and_then(|bounds| intersect(clip, bounds))
-            else {
-                continue;
-            };
-            intersection
-        } else {
-            clip
+            "AXUnknown" => self.unknown_message_text(element),
+            _ => None,
         };
-        // Some embedded web views expose an empty visible list on ordinary wrapper groups,
-        // even when the group contains the entire document. Leaf frames still pass clipping.
-        let mut children = children(&element, b"AXVisibleChildren\0")
-            .filter(|visible| is_scroll_area || !visible.is_empty())
-            .or_else(|| children(&element, b"AXChildren\0"))
-            .unwrap_or_default();
-        // Visit the pane containing the input before spending the bounded node budget on
-        // navigation sidebars. Sorting text after traversal cannot recover an unvisited pane.
-        let preferred = focus_path
-            .windows(2)
-            .find(|edge| same_element(&edge[1], &element));
-        if let Some(index) = preferred.and_then(|edge| {
-            children
-                .iter()
-                .position(|child| same_element(child, &edge[0]))
-        }) {
-            let child = children.remove(index);
-            children.insert(0, child);
+        self.push(text.as_deref().unwrap_or_default(), role == "AXStaticText");
+        if self.finished() || depth + 1 == MAX_DEPTH {
+            return;
         }
-        stack.extend(children.into_iter().rev().map(|child| {
-            (
-                child,
-                child_clip,
-                depth + 1,
-                in_document_editor || is_document_editor,
-            )
-        }));
+        if let Some(children) = attrs.get(2).and_then(|value| {
+            let value = *value;
+            (!value.is_null() && CFGetTypeID(value) == CFArray::<*const c_void>::type_id())
+                .then(|| CFArray::<*const c_void>::wrap_under_get_rule(value as CFArrayRef))
+        }) {
+            for child in children.iter() {
+                if self.finished() {
+                    break;
+                }
+                if let Some(child) = retained_element(*child) {
+                    self.visit(&child, depth + 1);
+                }
+            }
+        }
     }
-    prioritize_fragments(fragments, text_limit)
+
+    unsafe fn unknown_message_text(&self, element: &SendableElement) -> Option<String> {
+        let attrs = copy_attributes(element, self.message_attrs.as_concrete_TypeRef())?;
+        let identifier = string_prefix(*attrs.get(0)?, 128)?;
+        if !matches!(
+            identifier.as_str(),
+            "MMTextMessageCellView" | "MMTimeStampCellView"
+        ) {
+            return None;
+        }
+        [1, 2].into_iter().find_map(|index| {
+            string_prefix(*attrs.get(index)?, self.remaining).filter(|text| !text.trim().is_empty())
+        })
+    }
+
+    fn finished(&self) -> bool {
+        self.remaining == 0 || Instant::now() >= self.deadline
+    }
+
+    fn push(&mut self, fragment: &str, is_text: bool) {
+        let has_text = !fragment.trim().is_empty();
+        if has_text {
+            self.remaining -= fragment.chars().count();
+            if !self.text.is_empty() && !(is_text && self.previous_is_text) {
+                self.text.push('\n');
+            }
+            self.text.push_str(fragment);
+        }
+        self.previous_is_text = has_text && is_text;
+    }
 }
 
-unsafe fn focused_ancestors(
-    window: &SendableElement,
-    focused: &SendableElement,
+unsafe fn find_web_area(
+    element: &SendableElement,
     pid: i32,
     deadline: Instant,
-) -> Vec<SendableElement> {
-    let mut path = vec![focused.clone()];
-    for _ in 0..MAX_DEPTH {
-        let node = path
-            .last()
-            .expect("focus path starts with the focused element");
-        if same_element(node, window) {
-            return path;
-        }
-        if deadline.saturating_duration_since(Instant::now()) < Duration::from_millis(220) {
-            break;
-        }
-        let Some(parent) = owned_element_attr(node, b"AXParent\0") else {
-            break;
-        };
-        if !owned_by(&parent, pid) || path.iter().any(|node| same_element(node, &parent)) {
-            break;
-        }
-        path.push(parent);
+    depth: usize,
+) -> Option<SendableElement> {
+    if depth == MAX_WEB_AREA_DEPTH || Instant::now() >= deadline {
+        return None;
     }
-    path
+    for child in children(element)?.iter() {
+        if Instant::now() >= deadline {
+            break;
+        }
+        let Some(child) = retained_element(*child).filter(|child| owned_by(child, pid)) else {
+            continue;
+        };
+        AXUIElementSetMessagingTimeout(child.as_ref(), MESSAGE_TIMEOUT);
+        if copy_string_attr(child.as_ref(), b"AXRole\0").as_deref() == Some("AXWebArea") {
+            return Some(child);
+        }
+        if let Some(web_area) = find_web_area(&child, pid, deadline, depth + 1) {
+            return Some(web_area);
+        }
+    }
+    None
 }
 
-fn prioritize_fragments(fragments: Vec<(f64, String)>, text_limit: usize) -> String {
-    let mut indexed: Vec<_> = fragments.into_iter().enumerate().collect();
-    indexed.sort_by(|a, b| a.1 .0.total_cmp(&b.1 .0));
-    let mut remaining = text_limit;
-    let mut selected = Vec::new();
-    for (index, (_, text)) in indexed {
-        if remaining == 0 {
-            break;
-        }
-        let text: String = text.chars().take(remaining).collect();
-        remaining = remaining.saturating_sub(text.chars().count() + 1);
-        selected.push((index, text));
+unsafe fn copy_attributes(
+    element: &SendableElement,
+    attrs: CFArrayRef,
+) -> Option<CFArray<*const c_void>> {
+    let mut values = std::ptr::null();
+    let status = AXUIElementCopyMultipleAttributeValues(element.as_ref(), attrs, 0, &mut values);
+    (status == AX_ERROR_SUCCESS && !values.is_null())
+        .then(|| CFArray::wrap_under_create_rule(values))
+}
+
+unsafe fn string_prefix(value: *const c_void, limit: usize) -> Option<String> {
+    if value.is_null() || CFGetTypeID(value) != CFStringGetTypeID() {
+        return None;
     }
-    selected.sort_by_key(|(index, _)| *index);
-    selected
-        .into_iter()
-        .map(|(_, text)| text)
-        .collect::<Vec<_>>()
-        .join("\n")
+    let value = value as CFStringRef;
+    let length = CFStringGetLength(value);
+    let text = if length <= (limit * 2) as isize {
+        cfstring_to_rust(value)?
+    } else {
+        // Two UTF-16 units per scalar is enough for any prefix of the requested length.
+        let mut prefix = vec![0; limit * 2];
+        CFStringGetCharacters(
+            value.cast(),
+            CFRange {
+                location: 0,
+                length: prefix.len() as isize,
+            },
+            prefix.as_mut_ptr(),
+        );
+        String::from_utf16_lossy(&prefix)
+    };
+    Some(text.chars().take(limit).collect())
 }
 
 unsafe fn owned_element_attr(
@@ -547,53 +556,18 @@ unsafe fn same_element(a: &SendableElement, b: &SendableElement) -> bool {
     CFEqual(a.as_ref().cast(), b.as_ref().cast()) != 0
 }
 
-unsafe fn children(element: &SendableElement, attribute: &[u8]) -> Option<Vec<SendableElement>> {
-    let attr = cfstring_from_static(attribute)?;
-    let mut count = 0;
-    let mut array = std::ptr::null();
-    let status = AXUIElementGetAttributeValueCount(element.as_ref(), attr, &mut count);
-    let result = if status == AX_ERROR_SUCCESS && count > 0 {
-        AXUIElementCopyAttributeValues(
-            element.as_ref(),
-            attr,
-            0,
-            count.min(MAX_CHILDREN),
-            &mut array,
-        )
-    } else {
-        status
-    };
-    CFRelease(attr);
-    if result != AX_ERROR_SUCCESS {
+unsafe fn children(element: &SendableElement) -> Option<CFArray<*const c_void>> {
+    let value = copy_attr(element.as_ref(), b"AXChildren\0")?;
+    if CFGetTypeID(value) != CFArray::<*const c_void>::type_id() {
+        CFRelease(value);
         return None;
     }
-    if count <= 0 {
-        return Some(Vec::new());
-    }
-    if array.is_null() {
-        return None;
-    }
-    let array: CFArray<*const c_void> = CFArray::wrap_under_create_rule(array);
-    Some(
-        array
-            .iter()
-            .filter_map(|value| {
-                let value = *value;
-                (!value.is_null() && CFGetTypeID(value.cast()) == AXUIElementGetTypeID())
-                    .then(|| SendableElement::retained(value as AxUiElementRef))
-            })
-            .collect(),
-    )
+    Some(CFArray::wrap_under_create_rule(value as CFArrayRef))
 }
 
-unsafe fn bool_attr(element: &SendableElement, attr: &[u8]) -> bool {
-    let Some(value) = copy_attr(element.as_ref(), attr) else {
-        return false;
-    };
-    let result = CFGetTypeID(value) == CFBoolean::type_id()
-        && bool::from(CFBoolean::wrap_under_get_rule(value as _));
-    CFRelease(value);
-    result
+unsafe fn retained_element(value: *const c_void) -> Option<SendableElement> {
+    (!value.is_null() && CFGetTypeID(value) == AXUIElementGetTypeID())
+        .then(|| SendableElement::retained(value as AxUiElementRef))
 }
 
 unsafe fn bounded_text(element: &SendableElement, attr: &[u8], limit: usize) -> Option<String> {
@@ -656,21 +630,4 @@ unsafe fn frame(element: &SendableElement) -> Option<CGRect> {
     let size: CGSize = geometry(element, b"AXSize\0", AX_VALUE_CGSIZE)?;
     let rect = CGRect::new(&origin, &size);
     (!rect.is_empty()).then_some(rect)
-}
-
-fn contains_rect(outer: CGRect, inner: CGRect) -> bool {
-    outer.contains(&inner.origin)
-        && outer.contains(&CGPoint::new(
-            inner.origin.x + inner.size.width - 0.01,
-            inner.origin.y + inner.size.height - 0.01,
-        ))
-}
-
-fn intersect(a: CGRect, b: CGRect) -> Option<CGRect> {
-    let x = a.origin.x.max(b.origin.x);
-    let y = a.origin.y.max(b.origin.y);
-    let right = (a.origin.x + a.size.width).min(b.origin.x + b.size.width);
-    let bottom = (a.origin.y + a.size.height).min(b.origin.y + b.size.height);
-    (right > x && bottom > y)
-        .then(|| CGRect::new(&CGPoint::new(x, y), &CGSize::new(right - x, bottom - y)))
 }

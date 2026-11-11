@@ -534,7 +534,10 @@ mod tests {
         let text = WindowContext {
             title: Some("fixture window".into()),
             domain: None,
-            visible_text: format!("  {}  ", "窗".repeat(4000)),
+            visible_text: format!(
+                "  {}  ",
+                "窗".repeat(crate::host_document::WINDOW_CONTEXT_PROMPT_CHARS + 1)
+            ),
         };
         let text = HistoryWindowContext::from_attachment(Some(&text), None).unwrap();
         store.upsert_with_window_context(
