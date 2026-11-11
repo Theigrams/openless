@@ -34,14 +34,14 @@ import { AutoUpdateSection } from './AutoUpdateSection';
 import { StartupDiagnostics } from './StartupDiagnostics';
 import { AboutSection } from './AboutSection';
 import { getPlatformCapabilities, getCachedPlatformCapabilities } from '../../lib/platform';
-import { listChannels } from '../../lib/ipc';
+import { listChannels, openSystemSettings } from '../../lib/ipc';
 import type { PlatformCapabilities } from '../../lib/types';
 import { type OS } from '../../components/WindowChrome';
 import { useHotkeySettings } from '../../state/HotkeySettingsContext';
 import { emitSaved } from '../../lib/savedEvent';
 import { SettingRow, Toggle, ExperimentalSectionTitle, inputStyle } from './shared';
 import { Segmented } from '../../components/ui/Segmented';
-import { Card } from '../_atoms';
+import { Btn, Card } from '../_atoms';
 import { useContentMotion, useSelectionMotion } from '../../lib/motion';
 import { TransitionViewport } from '../../components/ui/TransitionViewport';
 import {
@@ -618,6 +618,110 @@ function CursorContextSection() {
   );
 }
 
+function WindowContextSection() {
+  const { t } = useTranslation();
+  const { prefs, updatePrefs } = useHotkeySettings();
+  const platformCaps = usePlatformCaps();
+  const [thresholdDraft, setThresholdDraft] = useState<string | null>(null);
+  if (!prefs || platformCaps?.platform !== 'desktop' || detectOS() !== 'mac') return null;
+  const mode = prefs.windowContextCaptureMode;
+  const screenshot = mode === 'screenshot';
+  const fallback = mode === 'textWithScreenshotFallback';
+  const threshold = prefs.windowContextScreenshotThreshold;
+  const maxThreshold = 3500;
+  const thresholdLabel = t('settings.dataStorage.windowContextScreenshotThreshold');
+
+  return (
+    <Card>
+      <ExperimentalSectionTitle badge={t('common.experimental')}>
+        {t('settings.dataStorage.windowContextTitle')}
+      </ExperimentalSectionTitle>
+      <SettingRow
+        label={t('settings.dataStorage.windowContextLabel')}
+        desc={t('settings.dataStorage.windowContextDesc')}
+      >
+        <Toggle
+          on={prefs.windowContextEnabled}
+          onToggle={(next) =>
+            void updatePrefs((current) => ({ ...current, windowContextEnabled: next }))
+          }
+        />
+      </SettingRow>
+      {prefs.windowContextEnabled && (
+        <>
+          <SettingRow label={t('settings.dataStorage.windowContextCapture')}>
+            <Segmented
+              label={t('settings.dataStorage.windowContextCapture')}
+              value={screenshot ? 'screenshot' : 'text'}
+              options={[
+                { value: 'text', label: t('settings.dataStorage.windowContextAX') },
+                { value: 'screenshot', label: t('settings.dataStorage.windowContextScreenshot') },
+              ]}
+              onChange={(next) =>
+                void updatePrefs((current) => ({ ...current, windowContextCaptureMode: next }))
+              }
+            />
+          </SettingRow>
+          {!screenshot && (
+            <SettingRow
+              label={t('settings.dataStorage.windowContextFallback')}
+              desc={t('settings.dataStorage.windowContextFallbackDesc', { count: threshold })}
+            >
+              <Toggle
+                on={fallback}
+                onToggle={(next) =>
+                  void updatePrefs((current) => ({
+                    ...current,
+                    windowContextCaptureMode: next ? 'textWithScreenshotFallback' : 'text',
+                  }))
+                }
+              />
+            </SettingRow>
+          )}
+          {fallback && (
+            <SettingRow label={thresholdLabel}>
+              <input
+                type="number"
+                min={1}
+                max={maxThreshold}
+                step={1}
+                value={thresholdDraft ?? threshold}
+                aria-label={thresholdLabel}
+                style={{ ...inputStyle, width: 88, textAlign: 'right' }}
+                onChange={(event) => setThresholdDraft(event.target.value)}
+                onBlur={(event) => {
+                  const value = event.currentTarget.valueAsNumber;
+                  setThresholdDraft(null);
+                  if (!Number.isFinite(value)) return;
+                  const next = Math.max(1, Math.min(maxThreshold, Math.round(value)));
+                  if (next !== threshold) {
+                    void updatePrefs((current) => ({
+                      ...current, windowContextScreenshotThreshold: next,
+                    }));
+                  }
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') event.currentTarget.blur();
+                }}
+              />
+            </SettingRow>
+          )}
+          {(screenshot || fallback) && (
+            <SettingRow
+              label={t('settings.dataStorage.windowContextScreenshot')}
+              desc={t('settings.dataStorage.windowContextScreenshotDesc')}
+            >
+              <Btn size="sm" onClick={() => void openSystemSettings('screenRecording')}>
+                {t('settings.dataStorage.windowContextScreenPermission')}
+              </Btn>
+            </SettingRow>
+          )}
+        </>
+      )}
+    </Card>
+  );
+}
+
 function LiveInputSection() {
   const { t } = useTranslation();
   const { prefs, updatePrefs } = useHotkeySettings();
@@ -739,6 +843,7 @@ export function AdvancedTab({
                 style={{ display: 'flex', flexDirection: 'column', gap: 16 }}
               >
                 <CursorContextSection />
+                <WindowContextSection />
                 {showsCursorContextControl(platformCaps?.platform, detectOS()) && (
                   <VocabularyLearningSection />
                 )}
@@ -748,7 +853,11 @@ export function AdvancedTab({
             )}
             {item.id === 'startupDiagnostics' && <StartupDiagnostics />}
             {item.id === 'customSyncServer' && page === item.id && <CustomSyncServerSection />}
-            {item.id === 'debug' && <DebugToolsSection />}
+            {item.id === 'debug' && (
+              <DebugToolsSection
+                showWindowProbe={platformCaps?.platform === 'desktop' && detectOS() === 'mac'}
+              />
+            )}
           </section>
         ))}
     </>

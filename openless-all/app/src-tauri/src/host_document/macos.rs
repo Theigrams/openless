@@ -34,6 +34,9 @@ use super::{
     EditPair, GateInputs, ReadOutcome, AX_MESSAGING_TIMEOUT_SECS,
 };
 
+mod window_context;
+pub(crate) use window_context::{probe_window_context, read_window_context};
+
 /// Above this UTF-16 length, skip a full `AXValue` read and use
 /// `AXStringForRange` to fetch only the span near the cursor.
 ///
@@ -231,7 +234,14 @@ enum GatedElement {
 /// `AXUIElementSetMessagingTimeout` is also set here; without it AX's ~6s
 /// default freezes the worker against a stuck app — the most important line
 /// in this module.
-unsafe fn focused_element_passing_the_gate(mut gate: GateInputs) -> GatedElement {
+unsafe fn focused_element_passing_the_gate(gate: GateInputs) -> GatedElement {
+    focused_element_passing_the_gate_with_timeout(gate, AX_MESSAGING_TIMEOUT_SECS)
+}
+
+unsafe fn focused_element_passing_the_gate_with_timeout(
+    mut gate: GateInputs,
+    messaging_timeout: f32,
+) -> GatedElement {
     if let Some(reason) = evaluate_gate(&gate) {
         return GatedElement::Blocked(reason);
     }
@@ -245,7 +255,7 @@ unsafe fn focused_element_passing_the_gate(mut gate: GateInputs) -> GatedElement
     if application.is_null() {
         return GatedElement::Unavailable("application AX element unavailable");
     }
-    AXUIElementSetMessagingTimeout(application, AX_MESSAGING_TIMEOUT_SECS);
+    AXUIElementSetMessagingTimeout(application, messaging_timeout);
     let focused = copy_element_attr(application, b"AXFocusedUIElement\0");
     CFRelease(application as CFTypeRef);
 
@@ -253,7 +263,7 @@ unsafe fn focused_element_passing_the_gate(mut gate: GateInputs) -> GatedElement
         return GatedElement::Unavailable("no focused UI element (AX permission or no focus)");
     };
     // Set again explicitly: the process default only applies to refs created afterwards.
-    AXUIElementSetMessagingTimeout(focused, AX_MESSAGING_TIMEOUT_SECS);
+    AXUIElementSetMessagingTimeout(focused, messaging_timeout);
 
     // Re-check with the element's own identity; do not trust the front app sampled earlier.
     //

@@ -166,7 +166,7 @@ fn map_core_permission(state: openless_core::PermissionState) -> PermissionStatu
     }
 }
 
-/// Jumps to the given privacy pane in macOS System Settings. pane: "accessibility" | "microphone".
+/// Jumps to the given privacy pane in macOS System Settings.
 #[tauri::command]
 pub fn open_system_settings(pane: String) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -177,6 +177,16 @@ pub fn open_system_settings(pane: String) -> Result<(), String> {
             }
             "microphone" => {
                 "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone"
+            }
+            "screenRecording" => {
+                extern "C" {
+                    fn CGPreflightScreenCaptureAccess() -> bool;
+                    fn CGRequestScreenCaptureAccess() -> bool;
+                }
+                if unsafe { !CGPreflightScreenCaptureAccess() && CGRequestScreenCaptureAccess() } {
+                    return Ok(());
+                }
+                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
             }
             _ => "x-apple.systempreferences:com.apple.preference.security?Privacy",
         };

@@ -45,6 +45,10 @@ pub fn effective_pipeline_mode(enabled: bool, configured: PipelineMode) -> Pipel
     }
 }
 
+fn default_window_context_screenshot_threshold() -> u32 {
+    crate::host_document::DEFAULT_WINDOW_SCREENSHOT_THRESHOLD
+}
+
 fn default_pipeline_mode() -> PipelineMode {
     PipelineMode::Traditional
 }
@@ -840,6 +844,13 @@ pub struct UserPreferences {
     /// hard-blocked regardless of this switch.
     #[serde(default = "default_true")]
     pub cursor_context_enabled: bool,
+    /// Opt-in, local consent to read visible text outside the focused input.
+    #[serde(default)]
+    pub window_context_enabled: bool,
+    #[serde(default)]
+    pub window_context_capture_mode: crate::host_document::WindowCaptureMode,
+    #[serde(default = "default_window_context_screenshot_threshold")]
+    pub window_context_screenshot_threshold: u32,
     /// Observe corrections locally after insertion; independent of LLM context.
     #[serde(default)]
     pub vocabulary_learning_enabled: bool,
@@ -1233,6 +1244,12 @@ struct UserPreferencesWire {
     #[serde(default = "default_true")]
     cursor_context_enabled: bool,
     #[serde(default)]
+    window_context_enabled: bool,
+    #[serde(default)]
+    window_context_capture_mode: crate::host_document::WindowCaptureMode,
+    #[serde(default = "default_window_context_screenshot_threshold")]
+    window_context_screenshot_threshold: u32,
+    #[serde(default)]
     vocabulary_learning_enabled: bool,
     #[serde(default)]
     expression_learning_enabled: bool,
@@ -1441,6 +1458,9 @@ impl Default for UserPreferencesWire {
             windows_composition_input: prefs.windows_composition_input,
             macos_composition_input: prefs.macos_composition_input,
             cursor_context_enabled: prefs.cursor_context_enabled,
+            window_context_enabled: prefs.window_context_enabled,
+            window_context_capture_mode: prefs.window_context_capture_mode,
+            window_context_screenshot_threshold: prefs.window_context_screenshot_threshold,
             vocabulary_learning_enabled: prefs.vocabulary_learning_enabled,
             expression_learning_enabled: prefs.expression_learning_enabled,
             vocabulary_learning_settings: prefs.vocabulary_learning_settings,
@@ -1683,6 +1703,11 @@ impl<'de> Deserialize<'de> for UserPreferences {
             windows_composition_input: wire.windows_composition_input,
             macos_composition_input: wire.macos_composition_input,
             cursor_context_enabled: wire.cursor_context_enabled,
+            window_context_enabled: wire.window_context_enabled,
+            window_context_capture_mode: wire.window_context_capture_mode,
+            window_context_screenshot_threshold: crate::host_document::clamp_window_screenshot_threshold(
+                wire.window_context_screenshot_threshold,
+            ),
             vocabulary_learning_enabled: wire.vocabulary_learning_enabled,
             expression_learning_enabled: wire.expression_learning_enabled,
             vocabulary_learning_settings: wire.vocabulary_learning_settings.normalized(),
@@ -2068,6 +2093,9 @@ impl Default for UserPreferences {
             windows_composition_input: false,
             macos_composition_input: false,
             cursor_context_enabled: true,
+            window_context_enabled: false,
+            window_context_capture_mode: Default::default(),
+            window_context_screenshot_threshold: default_window_context_screenshot_threshold(),
             vocabulary_learning_enabled: false,
             expression_learning_enabled: false,
             vocabulary_learning_settings: VocabularyLearningSettings::default(),
@@ -3757,6 +3785,20 @@ mod tests {
         let disabled: UserPreferences =
             serde_json::from_str(r#"{"cursorContextEnabled":false}"#).unwrap();
         assert!(!disabled.cursor_context_enabled);
+    }
+
+    #[test]
+    fn window_context_screenshot_threshold_defaults_and_round_trips() {
+        let defaults: UserPreferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(defaults.window_context_screenshot_threshold, 300);
+
+        for (input, expected) in [(0, 1), (900, 900), (5000, 3500)] {
+            let prefs: UserPreferences = serde_json::from_value(serde_json::json!({
+                "windowContextScreenshotThreshold": input,
+            })).unwrap();
+            assert_eq!(prefs.window_context_screenshot_threshold, expected);
+            assert_eq!(serde_json::to_value(prefs).unwrap()["windowContextScreenshotThreshold"], expected);
+        }
     }
 
     #[test]

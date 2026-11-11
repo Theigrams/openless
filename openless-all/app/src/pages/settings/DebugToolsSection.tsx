@@ -6,27 +6,41 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { debugReadCursorContext, exportErrorLog } from '../../lib/ipc';
+import { debugReadCursorContext, debugReadWindowContext, debugReadWindowScreenshot, exportErrorLog } from '../../lib/ipc';
 import { useMobileLayout } from '../../lib/useMobileLayout';
-import type { HostDocumentReadResult } from '../../lib/types';
+import type { HostDocumentReadResult, WindowContextReadResult } from '../../lib/types';
 import { useHotkeySettings } from '../../state/HotkeySettingsContext';
 import { Btn, Card } from '../_atoms';
 import { SettingRow, Toggle, inputStyle } from './shared';
 
 const clamp = (n: number, min: number, max: number) => Math.max(min, Math.min(max, n));
+type ProbeKind = 'cursor' | 'window' | 'screenshot';
+const PROBE_DELAY_SECONDS: Record<ProbeKind, number> = { cursor: 5, window: 3, screenshot: 3 };
+const probeResultStyle = {
+  fontSize: 11,
+  fontFamily: 'var(--ol-font-mono)',
+  lineHeight: 1.7,
+  padding: '8px 10px',
+  borderRadius: 'var(--ol-control-radius)',
+  background: 'var(--ol-surface-2)',
+  border: '0.5px solid var(--ol-line-strong)',
+  maxWidth: 420,
+  overflowWrap: 'anywhere',
+} as const;
 
-export function DebugToolsSection() {
+export function DebugToolsSection({ showWindowProbe }: { showWindowProbe: boolean }) {
   const { t } = useTranslation();
   const mobile = useMobileLayout();
   const { prefs, updatePrefs: savePrefs } = useHotkeySettings();
   const [exportStatus, setExportStatus] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [exportMessage, setExportMessage] = useState<string>('');
   const exportTimerRef = useRef<number | null>(null);
-  // Cursor context probe. The countdown gives the user time to switch to the target app — see
-  // onProbeCursorContext.
+  const [activeProbe, setActiveProbe] = useState<ProbeKind | null>(null);
   const [probeCountdown, setProbeCountdown] = useState(0);
   const [probeResult, setProbeResult] = useState<HostDocumentReadResult | null>(null);
-  const [probeError, setProbeError] = useState<string | null>(null);
+  const [windowProbeResult, setWindowProbeResult] = useState<WindowContextReadResult | null>(null);
+  const [screenshot, setScreenshot] = useState<string | null>(null);
+  const [probeError, setProbeError] = useState<{ kind: ProbeKind; message: string } | null>(null);
   const probeTimerRef = useRef<number | null>(null);
 
   useEffect(
@@ -37,17 +51,15 @@ export function DebugToolsSection() {
     [],
   );
 
-  /// Click → count down a few seconds → read the foreground app's cursor context once.
-  ///
-  /// A countdown is required: at the moment the button is clicked the foreground app is OpenLess
-  /// itself, so reading directly would only read our own settings window. During the countdown the
-  /// user switches to Notes / VS Code / WeChat and clicks into an input field, and only then does
-  /// the probe read something real.
-  const PROBE_DELAY_SECONDS = 5;
-  const onProbeCursorContext = async () => {
-    setProbeResult(null);
+  // Delay the native read until the user has switched away from OpenLess settings.
+  const onProbeContext = async (kind: ProbeKind) => {
+    const delaySeconds = PROBE_DELAY_SECONDS[kind];
+    if (kind === 'cursor') setProbeResult(null);
+    else if (kind === 'window') setWindowProbeResult(null);
+    else setScreenshot(null);
     setProbeError(null);
-    setProbeCountdown(PROBE_DELAY_SECONDS);
+    setActiveProbe(kind);
+    setProbeCountdown(delaySeconds);
     if (probeTimerRef.current) clearInterval(probeTimerRef.current);
     probeTimerRef.current = window.setInterval(() => {
       setProbeCountdown((prev) => {
@@ -56,14 +68,52 @@ export function DebugToolsSection() {
       });
     }, 1000);
     try {
-      setProbeResult(await debugReadCursorContext(PROBE_DELAY_SECONDS * 1000));
+      const delayMs = delaySeconds * 1000;
+      if (kind === 'cursor') setProbeResult(await debugReadCursorContext(delayMs));
+      else if (kind === 'window') setWindowProbeResult(await debugReadWindowContext(delayMs));
+      else setScreenshot(await debugReadWindowScreenshot(delayMs));
     } catch (err) {
-      setProbeError(err instanceof Error ? err.message : String(err));
+      setProbeError({ kind, message: err instanceof Error ? err.message : String(err) });
     } finally {
+      setActiveProbe(null);
       setProbeCountdown(0);
       if (probeTimerRef.current) clearInterval(probeTimerRef.current);
     }
   };
+
+  const probeButton = (kind: ProbeKind) => (
+    <Btn
+      variant="ghost"
+      size="sm"
+      disabled={activeProbe !== null}
+      onClick={() => void onProbeContext(kind)}
+    >
+      {activeProbe !== kind
+        ? t(kind === 'screenshot' ? 'settings.dataStorage.windowScreenshotProbeBtn' : 'settings.debug.cursorProbeBtn', { n: PROBE_DELAY_SECONDS[kind] })
+        : probeCountdown > 0
+          ? t('settings.debug.cursorProbeCountdown', { n: probeCountdown })
+          : t('common.loading')}
+    </Btn>
+  );
+
+  const renderProbeStatus = ({
+    status,
+    reason,
+    elapsedMs,
+  }: HostDocumentReadResult | WindowContextReadResult) => (
+    <div>
+      <b>{status}</b>
+      {reason ? ` — ${reason}` : ''}
+      {` · ${elapsedMs}ms`}
+    </div>
+  );
+
+  const renderProbeError = (kind: ProbeKind) =>
+    probeError?.kind === kind && (
+      <div role="alert" style={{ fontSize: 11, color: 'var(--ol-err)' }}>
+        {probeError.message}
+      </div>
+    );
 
   const onExportLog = async () => {
     setExportStatus('busy');
@@ -180,38 +230,11 @@ export function DebugToolsSection() {
         desc={t('settings.debug.cursorProbeDesc')}
       >
         <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
-          <div>
-            <Btn
-              variant="ghost"
-              size="sm"
-              disabled={probeCountdown > 0}
-              onClick={() => void onProbeCursorContext()}
-            >
-              {probeCountdown > 0
-                ? t('settings.debug.cursorProbeCountdown', { n: probeCountdown })
-                : t('settings.debug.cursorProbeBtn')}
-            </Btn>
-          </div>
-          {probeError && <div style={{ fontSize: 11, color: 'var(--ol-err)' }}>{probeError}</div>}
+          <div>{probeButton('cursor')}</div>
+          {renderProbeError('cursor')}
           {probeResult && (
-            <div
-              style={{
-                fontSize: 11,
-                fontFamily: 'var(--ol-font-mono)',
-                lineHeight: 1.7,
-                padding: '8px 10px',
-                borderRadius: 'var(--ol-control-radius)',
-                background: 'var(--ol-surface-2)',
-                border: '0.5px solid var(--ol-line-strong)',
-                maxWidth: 420,
-                wordBreak: 'break-word',
-              }}
-            >
-              <div>
-                <b>{probeResult.status}</b>
-                {probeResult.reason ? ` — ${probeResult.reason}` : ''}
-                {` · ${probeResult.elapsedMs}ms`}
-              </div>
+            <div style={probeResultStyle}>
+              {renderProbeStatus(probeResult)}
               <div style={{ color: 'var(--ol-ink-4)' }}>
                 {probeResult.appName ?? '?'} ({probeResult.bundleId ?? '?'})
               </div>
@@ -230,6 +253,59 @@ export function DebugToolsSection() {
           )}
         </div>
       </SettingRow>
+      {showWindowProbe && (
+        <SettingRow
+          label={t('settings.debug.windowProbeLabel')}
+          desc={t('settings.debug.windowProbeDesc', { n: PROBE_DELAY_SECONDS.window })}
+        >
+          <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+            <div>{probeButton('window')}</div>
+            {renderProbeError('window')}
+            {windowProbeResult && (
+              <div style={probeResultStyle}>
+                {renderProbeStatus(windowProbeResult)}
+                <div style={{ color: 'var(--ol-ink-4)' }}>
+                  {windowProbeResult.appName ?? windowProbeResult.bundleId ?? '?'}
+                </div>
+                {windowProbeResult.window && (
+                  <>
+                    <div>
+                      {t('settings.debug.windowProbeTitle')} ·{' '}
+                      {windowProbeResult.window.title ?? '—'}
+                    </div>
+                    <div>
+                      {t('settings.debug.windowProbeDomain')} ·{' '}
+                      {windowProbeResult.window.domain ?? '—'}
+                    </div>
+                    <div style={{ marginTop: 4 }}>{t('settings.debug.windowProbeText')}</div>
+                    <div style={{ maxHeight: 240, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+                      {windowProbeResult.window.visibleText}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </SettingRow>
+      )}
+      {showWindowProbe && (
+        <SettingRow
+          label={t('settings.dataStorage.windowContextScreenshot')}
+          desc={t('settings.dataStorage.windowScreenshotProbeDesc')}
+        >
+          <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+            <div>{probeButton('screenshot')}</div>
+            {renderProbeError('screenshot')}
+            {screenshot && (
+              <img
+                src={screenshot}
+                alt={t('settings.dataStorage.windowContextScreenshot')}
+                style={{ display: 'block', maxWidth: 'min(420px, 100%)', maxHeight: 300 }}
+              />
+            )}
+          </div>
+        </SettingRow>
+      )}
       <SettingRow label={t('modal.about.exportErrorLog')}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Btn variant="ghost" size="sm" disabled={exportStatus === 'busy'} onClick={onExportLog}>

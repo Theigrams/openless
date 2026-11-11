@@ -686,6 +686,14 @@ export const zhTW: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "視窗截圖",
+      accessibilityText: "輔助使用文字",
+      notAttached: "未附帶視窗上下文",
+      retried: "模型介面拒收圖片，最終結果來自無圖重試。",
+      missing: "最終模型請求沒有附帶視窗上下文。",
+      unavailable: "本機預覽無法使用。",
+    },
     exportError: '匯出錄音失敗，請重試。',
     kicker: 'HISTORY',
     title: '歷史記錄',
@@ -1236,6 +1244,19 @@ export const zhTW: typeof zhCN = {
     dataStorage: {
       title: '資料儲存',
       desc: '本機保留的歷史會話與對話上下文。',
+      windowContextTitle: "視窗上下文",
+      windowContextLabel: "啟用視窗上下文",
+      windowContextDesc: "聽寫時從作用中視窗取得參考內容，幫助模型理解術語和指代。此設定只在本機生效。 已傳送的視窗上下文會保存在本機歷史中，隨對應記錄刪除。",
+      windowContextCapture: "擷取方式",
+      windowContextAX: "輔助使用文字",
+      windowContextScreenshot: "視窗截圖",
+      windowContextFallback: "文字不足時改用截圖",
+      windowContextFallbackDesc: "可見文字少於 {{count}} 個非空白字元時，嘗試傳送視窗截圖。",
+      windowContextScreenshotThreshold: "截圖門檻（非空白字元）",
+      windowContextScreenshotDesc: "截圖會等比例縮小，並隨目前請求以圖片傳送給所選模型。模型須支援圖片輸入，macOS 須授予螢幕錄製權限。",
+      windowContextScreenPermission: "螢幕錄製權限",
+      windowScreenshotProbeBtn: "截圖探針（{{n}} 秒後）",
+      windowScreenshotProbeDesc: "預覽作用中視窗的截圖，只在本機顯示。",
       cursorContextLabel: '遊標上下文（實驗）',
       cursorContextDesc:
         '潤色時把游標附近的一小段文字傳給模型作參考，用於專有詞、同音詞和指代的判斷（macOS / Windows / Android）。聽寫、速記和雲筆記都會參考，但上下文本身不會寫入筆記、歷史或日誌；使用雲端模型時會隨本次潤色請求傳送給該模型服務。此開關與本機手改學詞獨立；排除密碼欄位、終端機及已知敏感應用程式。',
@@ -1257,8 +1278,14 @@ export const zhTW: typeof zhCN = {
       cursorProbeLabel: '遊標上下文探針',
       cursorProbeDesc:
         '點一下，然後在倒數內切到目標 app 並點進輸入框——探針會讀那裡的遊標附近原文，用來確認哪些 app 讀得到、哪些被安全閘門擋住。只讀一次，不送給任何服務商。',
-      cursorProbeBtn: '探測（5 秒後）',
+      cursorProbeBtn: '探測（{{n}} 秒後）',
       cursorProbeCountdown: '{{n}} 秒後讀取…',
+      windowProbeLabel: '視窗上下文探針',
+      windowProbeDesc:
+        '點一下，在 {{n}} 秒內切到目標 App 並點進輸入框。探針依照聽寫的規則預覽視窗標題、網頁網域與輸入框外的可見文字。結果只在這裡顯示。',
+      windowProbeTitle: '視窗標題',
+      windowProbeDomain: '網頁網域',
+      windowProbeText: '可見文字',
     },
     marketplace: {
       title: '擴充市集',

@@ -1185,6 +1185,7 @@ impl DictationEngine for PipelineDictationEngine {
                 has_audio_recording,
                 asr_call_label,
                 llm_call_label: polish_output.llm_call_label,
+                history_window_context: polish_output.history_window_context,
             })
         })
     }

@@ -63,6 +63,13 @@ mod global_hotkey_runtime;
 // touches other apps' documents; all platform differences and security guards live here.
 // Currently macOS-only; other platforms degrade gracefully.
 mod host_document;
+
+/// Standalone local diagnostics use the same capture path as dictation and the settings probe.
+#[cfg(all(target_os = "macos", feature = "window-context-probe"))]
+pub async fn window_context_probe_json() -> Result<String, String> {
+    serde_json::to_string(&host_document::probe_window_context().await)
+        .map_err(|error| error.to_string())
+}
 #[cfg(not(mobile))]
 #[path = "hotkey.rs"]
 mod hotkey;
@@ -312,6 +319,8 @@ macro_rules! app_invoke_handler_desktop {
             commands::get_credentials,
             commands::set_credential,
             commands::list_history,
+            commands::list_history_window_contexts,
+            commands::read_history_window_context,
             commands::delete_history_entry,
             commands::clear_history,
             commands::get_activity_stats,
@@ -541,6 +550,8 @@ macro_rules! app_invoke_handler_desktop {
             commands::sherpa_onnx_asr_reveal_model_dir,
             commands::export_error_log,
             commands::debug_read_cursor_context,
+            commands::debug_read_window_context,
+            commands::debug_read_window_screenshot,
             commands::accept_pending_correction,
             commands::add_learned_vocab,
             commands::reject_pending_correction,

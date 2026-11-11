@@ -737,6 +737,14 @@ export const de: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "Fensterbild",
+      accessibilityText: "Bedienungshilfen-Text",
+      notAttached: "Kein Fensterkontext angehängt",
+      retried: "Das Modell hat das Bild abgelehnt. Das Ergebnis stammt aus einem erneuten Versuch ohne Bild.",
+      missing: "Die letzte Anfrage enthielt keinen Fensterkontext.",
+      unavailable: "Die lokale Vorschau ist nicht verfügbar.",
+    },
     exportError: 'Die Aufnahme konnte nicht exportiert werden. Versuche es erneut.',
     kicker: 'VERLAUF',
     title: 'Verlauf',
@@ -1321,6 +1329,19 @@ export const de: typeof zhCN = {
     dataStorage: {
       title: 'Datenspeicherung',
       desc: 'Gesprächsverlauf und Kontext, die auf diesem Gerät gespeichert werden.',
+      windowContextTitle: "Fensterkontext",
+      windowContextLabel: "Fensterkontext verwenden",
+      windowContextDesc: "Verwendet das aktive Fenster beim Diktieren als Referenz für Begriffe und Namen. Die Einstellung gilt für dieses Gerät. Gesendeter Fensterkontext bleibt im lokalen Verlauf und wird mit dem Eintrag gelöscht.",
+      windowContextCapture: "Erfassungsmethode",
+      windowContextAX: "Bedienungshilfen-Text",
+      windowContextScreenshot: "Fensterbild",
+      windowContextFallback: "Bei wenig Text ein Fensterbild verwenden",
+      windowContextFallbackDesc: "Versucht ein Fensterbild, wenn weniger als {{count}} sichtbare Zeichen ohne Leerraum erfasst werden.",
+      windowContextScreenshotThreshold: "Schwelle für Fensterbilder (Zeichen ohne Leerraum)",
+      windowContextScreenshotDesc: "Das verkleinerte Bild wird mit der aktuellen Anfrage an das gewählte Modell gesendet. Das Modell muss Bilder unterstützen, und macOS benötigt die Berechtigung zur Bildschirmaufnahme.",
+      windowContextScreenPermission: "Berechtigung zur Bildschirmaufnahme",
+      windowScreenshotProbeBtn: "Fensterbild testen (in {{n}} s)",
+      windowScreenshotProbeDesc: "Zeigt eine lokale Vorschau des aktiven Fensters.",
       cursorContextLabel: 'Cursorkontext (experimentell)',
       cursorContextDesc:
         'Einen kurzen Textabschnitt rund um den Cursor als Referenz für Eigennamen, Homophone und Bezüge mit der Überarbeitung an das Modell senden (macOS / Windows / Android). Diktat, Schnellnotizen und Cloud-Notizen nutzen ihn, der Kontext selbst wird aber nie in Notizen, Verlauf oder Protokolle geschrieben; bei einem Cloud-Modell wird er mit der Überarbeitungsanfrage an diesen Anbieter gesendet. Diese Einstellung ist vom lokalen Lernen getrennt. Passwortfelder, Terminals und bekannte sensible Apps sind ausgeschlossen.',
@@ -1343,8 +1364,14 @@ export const de: typeof zhCN = {
       cursorProbeLabel: 'Cursorkontext prüfen',
       cursorProbeDesc:
         'Klicke hier, wechsle dann zur Ziel-App und klicke vor Ablauf des Countdowns in ein Textfeld. Die Prüfung liest den Text rund um den Cursor. So erkennst du, welche Apps lesbar sind und welche die Schutzfunktion blockiert. Einmaliger Lesezugriff, ohne Übertragung an einen Anbieter.',
-      cursorProbeBtn: 'Prüfen (in 5s)',
+      cursorProbeBtn: 'Prüfen (in {{n}}s)',
       cursorProbeCountdown: 'Lesen in {{n}}s…',
+      windowProbeLabel: 'Fensterkontext prüfen',
+      windowProbeDesc:
+        'Klicke hier, wechsle innerhalb von {{n}} Sekunden zur Ziel-App und fokussiere ein Textfeld. Die Vorschau zeigt Fenstertitel, Webdomain und sichtbaren Text außerhalb des Feldes nach denselben Regeln wie beim Diktat. Die Ergebnisse werden nur hier angezeigt.',
+      windowProbeTitle: 'Fenstertitel',
+      windowProbeDomain: 'Webdomain',
+      windowProbeText: 'Sichtbarer Text',
     },
     marketplace: {
       title: 'Marktplatz',

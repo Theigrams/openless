@@ -803,6 +803,27 @@ pub const PREFERENCE_FIELDS: &[PreferenceField] = &[
         reason: "portable_setting",
     },
     PreferenceField {
+        rust_name: "window_context_enabled",
+        key: "windowContextEnabled",
+        class: PreferenceClass::Excluded,
+        shape: PreferenceShape::Boolean,
+        reason: "local_consent_or_secret",
+    },
+    PreferenceField {
+        rust_name: "window_context_capture_mode",
+        key: "windowContextCaptureMode",
+        class: PreferenceClass::Excluded,
+        shape: PreferenceShape::Text,
+        reason: "local_consent_or_secret",
+    },
+    PreferenceField {
+        rust_name: "window_context_screenshot_threshold",
+        key: "windowContextScreenshotThreshold",
+        class: PreferenceClass::Excluded,
+        shape: PreferenceShape::Unsigned32,
+        reason: "local_consent_or_secret",
+    },
+    PreferenceField {
         rust_name: "vocabulary_learning_enabled",
         key: "vocabularyLearningEnabled",
         class: PreferenceClass::Excluded,

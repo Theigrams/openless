@@ -7,6 +7,24 @@ pub fn list_history(core: CoreState<'_>) -> Result<Vec<DictationSession>, String
 }
 
 #[tauri::command]
+pub fn list_history_window_contexts(
+    core: CoreState<'_>,
+) -> Result<std::collections::BTreeMap<String, openless_core::history::HistoryWindowContextKind>, String> {
+    core.history_window_context_kinds().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn read_history_window_context(
+    core: CoreState<'_>,
+    session_id: String,
+) -> Result<Option<openless_core::history::HistoryWindowContextPreview>, String> {
+    if !is_valid_session_id(&session_id) {
+        return Err("invalid session id".into());
+    }
+    core.read_history_window_context(&session_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn delete_history_entry(core: CoreState<'_>, id: String) -> Result<(), String> {
     if !is_valid_session_id(&id) {
         return Err("invalid session id".into());

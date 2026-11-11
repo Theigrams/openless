@@ -5490,6 +5490,18 @@ impl TauriHostContextAdapter {
 }
 
 impl openless_core::HostContextAdapter for TauriHostContextAdapter {
+    #[cfg(target_os = "macos")]
+    fn capture_window_with_mode(
+        &self,
+        mode: openless_core::host_document::WindowCaptureMode,
+        screenshot_threshold: u32,
+    ) -> BoxFuture<'static, Option<openless_core::host_document::WindowCapture>> {
+        let target = self.target.clone();
+        Box::pin(async move {
+            crate::host_document::read_window_context(target?, mode, screenshot_threshold).await
+        })
+    }
+
     fn capture(
         &self,
         include_cursor: bool,

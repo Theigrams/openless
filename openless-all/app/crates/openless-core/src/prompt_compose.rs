@@ -259,8 +259,23 @@ pub fn compose_polish_prompts(
     )
 }
 
+/// Optional reference data for the current input. Legacy callers can still pass
+/// just the cursor context.
+#[derive(Clone, Copy)]
+pub struct PolishReference<'a> {
+    pub(crate) cursor: Option<&'a str>,
+    pub(crate) window: Option<&'a crate::host_document::WindowContext>,
+    pub(crate) screenshot: Option<&'a crate::host_document::WindowScreenshot>,
+}
+
+impl<'a> From<Option<&'a str>> for PolishReference<'a> {
+    fn from(cursor: Option<&'a str>) -> Self {
+        Self { cursor, window: None, screenshot: None }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn compose_polish_prompts_for_input(
+pub(crate) fn compose_polish_prompts_for_input<'a>(
     raw_text: &str,
     _mode: PolishMode,
     hotwords: &[String],
@@ -269,7 +284,7 @@ pub(crate) fn compose_polish_prompts_for_input(
     chinese_script_preference: ChineseScriptPreference,
     output_language_preference: OutputLanguagePreference,
     front_app: Option<&str>,
-    cursor_context: Option<&str>,
+    reference: impl Into<PolishReference<'a>>,
     has_prior_turns: bool,
     edit_plan_input: bool,
 ) -> (String, String) {
@@ -287,7 +302,12 @@ pub(crate) fn compose_polish_prompts_for_input(
     // off the caller passes None and the prompt here is byte-identical to
     // before the feature: off must equal nonexistent — the feature's first
     // acceptance criterion.
-    let cursor_context_block = cursor_context.and_then(prompts::cursor_context_block);
+    let reference = reference.into();
+    if reference.screenshot.is_some() {
+        system_prompt.push_str("\n\n");
+        system_prompt.push_str(crate::host_document::WINDOW_SCREENSHOT_INSTRUCTION);
+    }
+    let cursor_context_block = reference.cursor.and_then(prompts::cursor_context_block);
     if let Some(block) = &cursor_context_block {
         system_prompt = format!("{}\n\n{}", system_prompt, block);
     }
@@ -323,11 +343,18 @@ pub(crate) fn compose_polish_prompts_for_input(
             prompts::polish_context_instruction()
         );
     }
-    let user_prompt = if edit_plan_input {
+    let mut user_prompt = if edit_plan_input {
         prompts::voice_edit_user_prompt(raw_text)
     } else {
         prompts::user_prompt(raw_text)
     };
+    if !edit_plan_input {
+        if let Some(block) = reference.window.and_then(prompts::window_context_block) {
+            system_prompt.push_str(prompts::WINDOW_CONTEXT_INSTRUCTION);
+            user_prompt.push_str("\n\n");
+            user_prompt.push_str(&block);
+        }
+    }
     (system_prompt, user_prompt)
 }
 
@@ -503,6 +530,37 @@ pub fn compose_hotword_block_preview(hotwords: &[String]) -> String {
 #[cfg(test)]
 mod translation_stream_tests {
     use super::*;
+
+    #[test]
+    fn missing_or_empty_window_context_preserves_legacy_prompt_bytes() {
+        let empty = crate::host_document::WindowContext {
+            title: Some("title only".into()),
+            domain: None,
+            visible_text: "   ".into(),
+        };
+        let compose = |reference| {
+            compose_polish_prompts_for_input(
+                "speech",
+                PolishMode::Raw,
+                &[],
+                "style",
+                &[],
+                ChineseScriptPreference::default(),
+                OutputLanguagePreference::default(),
+                Some("Fixture"),
+                reference,
+                false,
+                false,
+            )
+        };
+        let legacy = compose(PolishReference::from(Some("before ⟦光标⟧ after")));
+        assert_eq!(compose(PolishReference {
+            cursor: Some("before ⟦光标⟧ after"),
+            window: Some(&empty),
+            screenshot: None,
+        }), legacy);
+        assert!(!legacy.1.contains("window_context"));
+    }
 
     #[test]
     fn translation_stream_filters_source_and_split_markers() {

@@ -89,3 +89,15 @@ export async function debugReadCursorContext(
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke('debug_read_cursor_context', { delayMs });
 }
+
+export async function debugReadWindowContext(
+  delayMs: number,
+): Promise<import('../types').WindowContextReadResult> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke('debug_read_window_context', { delayMs });
+}
+
+export async function debugReadWindowScreenshot(delayMs: number): Promise<string> {
+  const { invoke } = await import('@tauri-apps/api/core');
+  return invoke('debug_read_window_screenshot', { delayMs });
+}

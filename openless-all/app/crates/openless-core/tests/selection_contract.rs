@@ -391,6 +391,7 @@ impl TextPolisher for RecordingContextPolisher {
                 text: "context output".to_string(),
                 source_text: Some("source polished".to_string()),
                 llm_call_label: None,
+                history_window_context: None,
             })
         })
     }

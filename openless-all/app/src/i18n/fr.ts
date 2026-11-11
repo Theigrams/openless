@@ -744,6 +744,14 @@ export const fr: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "Capture de la fenêtre",
+      accessibilityText: "Texte d’accessibilité",
+      notAttached: "Aucun contexte de fenêtre joint",
+      retried: "Le modèle a refusé l’image. Le résultat vient d’une nouvelle tentative sans image.",
+      missing: "La requête finale ne contenait aucun contexte de fenêtre.",
+      unavailable: "L’aperçu local est indisponible.",
+    },
     exportError: 'Impossible d’exporter l’enregistrement. Réessayez.',
     kicker: 'HISTORIQUE',
     title: 'Historique',
@@ -1332,6 +1340,19 @@ export const fr: typeof zhCN = {
     dataStorage: {
       title: 'Stockage des données',
       desc: 'Historique des conversations et contexte conservés sur cet appareil.',
+      windowContextTitle: "Contexte de la fenêtre",
+      windowContextLabel: "Utiliser le contexte de la fenêtre",
+      windowContextDesc: "Pendant la dictée, utilise la fenêtre active comme référence pour les noms et les termes. Ce réglage s’applique à cet appareil. Le contexte envoyé reste dans l’historique local et est supprimé avec son entrée.",
+      windowContextCapture: "Méthode de capture",
+      windowContextAX: "Texte d’accessibilité",
+      windowContextScreenshot: "Capture de la fenêtre",
+      windowContextFallback: "Utiliser une capture si le texte est court",
+      windowContextFallbackDesc: "Essaie une capture si le texte visible contient moins de {{count}} caractères hors espaces.",
+      windowContextScreenshotThreshold: "Seuil de capture (caractères hors espaces)",
+      windowContextScreenshotDesc: "L’image redimensionnée accompagne la requête envoyée au modèle sélectionné. Le modèle doit accepter les images et macOS exige une autorisation de capture d’écran.",
+      windowContextScreenPermission: "Autorisation de capture d’écran",
+      windowScreenshotProbeBtn: "Tester la capture (dans {{n}} s)",
+      windowScreenshotProbeDesc: "Affiche un aperçu local de la fenêtre active.",
       cursorContextLabel: 'Contexte du curseur (expérimental)',
       cursorContextDesc:
         'Envoyer un court extrait du texte autour du curseur au modèle comme référence pour les noms propres, les homophones et les pronoms lors de la reformulation (macOS / Windows / Android). La dictée, les notes rapides et les notes cloud l’utilisent, mais le contexte lui-même n’est jamais écrit dans les notes, l’historique ou les journaux ; avec un modèle cloud, il est envoyé à ce fournisseur avec la demande de reformulation. Ce réglage est indépendant de l’apprentissage local. Les champs de mot de passe, les terminaux et les applications sensibles connues sont exclus.',
@@ -1353,8 +1374,14 @@ export const fr: typeof zhCN = {
       cursorProbeLabel: 'Sonde du contexte du curseur',
       cursorProbeDesc:
         'Cliquez, puis passez à l’application cible et placez le curseur dans un champ avant la fin du décompte. La sonde lit le texte autour du curseur pour vérifier quelles applications sont lisibles et lesquelles sont bloquées par les protections. Une seule lecture, sans envoi à un fournisseur.',
-      cursorProbeBtn: 'Sonder dans 5 s',
+      cursorProbeBtn: 'Sonder dans {{n}} s',
       cursorProbeCountdown: 'Lecture dans {{n}}s…',
+      windowProbeLabel: 'Sonde de contexte de fenêtre',
+      windowProbeDesc:
+        'Cliquez, puis passez à l’application cible et sélectionnez un champ de texte sous {{n}} secondes. L’aperçu affiche le titre, le domaine web et le texte visible hors du champ selon les règles de la dictée. Les résultats s’affichent uniquement ici.',
+      windowProbeTitle: 'Titre de la fenêtre',
+      windowProbeDomain: 'Domaine web',
+      windowProbeText: 'Texte visible',
     },
     marketplace: {
       title: 'Catalogue',

@@ -747,6 +747,7 @@ impl FixtureDictationEngine {
                 has_audio_recording: None,
                 asr_call_label: None,
                 llm_call_label: None,
+                history_window_context: None,
             }),
             context_update_error: None,
             polish_deltas: Vec::new(),

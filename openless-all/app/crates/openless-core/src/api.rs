@@ -7152,6 +7152,19 @@ impl OpenLessBackend {
         self.history.list()
     }
 
+    pub fn history_window_context_kinds(
+        &self,
+    ) -> Result<std::collections::BTreeMap<String, crate::history::HistoryWindowContextKind>, BackendError> {
+        self.history.window_context_kinds()
+    }
+
+    pub fn read_history_window_context(
+        &self,
+        id: &str,
+    ) -> Result<Option<crate::history::HistoryWindowContextPreview>, BackendError> {
+        Ok(self.history.read_window_context(id)?.map(crate::history::HistoryWindowContext::preview))
+    }
+
     pub fn recent_history_within_minutes(
         &self,
         minutes: u32,
@@ -8223,7 +8236,17 @@ impl OpenLessBackend {
                             }
                             None | Some(false) => captured.output_target,
                         });
-                        let targeted = captured.with_output_target(target);
+                        let mut targeted = captured.with_output_target(target);
+                        let prefs = self.get_preferences();
+                        let allow_window = target == DictationOutputTarget::ForegroundApp
+                            && prefs.window_context_enabled;
+                        let mut window_context_removed = false;
+                        if !allow_window || prefs.window_context_capture_mode == crate::host_document::WindowCaptureMode::Screenshot {
+                            window_context_removed |= targeted.polish.window_context.take().is_some();
+                        }
+                        if !allow_window || !prefs.window_context_capture_mode.allows_screenshot() {
+                            window_context_removed |= targeted.polish.window_screenshot.take().is_some();
+                        }
                         let context = match options.translation_requested {
                             Some(requested) => {
                                 Arc::new(targeted.with_translation_requested(requested))
@@ -8237,6 +8260,7 @@ impl OpenLessBackend {
                         let context_changed =
                             std::mem::take(&mut state.dictation_destination_changed)
                                 || state.dictation_translation_requested.take().is_some()
+                                || window_context_removed
                                 || state.dictation_context.as_ref().is_some_and(|previous| {
                                     previous.polish.translation_active
                                         != context.polish.translation_active
@@ -8852,12 +8876,23 @@ impl OpenLessBackend {
             asr_ms: attribution.asr_ms,
             polish_ms: attribution.polish_ms,
         };
-        if let Err(error) = self.upsert_history(
+        let window_context = if context.polish.window_context_requested
+            && preferences.window_context_enabled
+            && context.output_target == DictationOutputTarget::ForegroundApp
+        {
+            engine_result.history_window_context.as_ref()
+                .or(Some(&crate::history::HistoryWindowContext::NotAttached))
+        } else {
+            None
+        };
+        match self.history.upsert_with_window_context(
             session,
             preferences.history_retention_days,
             preferences.history_max_entries,
+            window_context,
         ) {
-            log::warn!("failed to persist completed dictation history: {error}");
+            Ok(()) => self.publish_history_changed(),
+            Err(error) => log::warn!("failed to persist completed dictation history: {error}"),
         }
         if let Err(error) = self.record_activity(
             &self.clock.today_local().format("%Y-%m-%d").to_string(),
@@ -9344,23 +9379,42 @@ impl OpenLessBackend {
             // application-aware polish, and macOS Auto newline selection.
             captured_options.cursor_context = None;
         }
-        if captured_options.front_app.is_none()
-            || (preferences.cursor_context_enabled && captured_options.cursor_context.is_none())
-        {
-            match host_context
-                .capture(preferences.cursor_context_enabled)
-                .await
-            {
-                Ok(capture) => {
-                    captured_options.front_app = captured_options.front_app.or(capture.front_app);
-                    if preferences.cursor_context_enabled {
-                        captured_options.cursor_context =
-                            captured_options.cursor_context.or(capture.cursor_context);
-                    }
-                }
-                Err(error) => log::warn!("host context capture failed: {error}"),
+        let collect_window = preferences.window_context_enabled
+            && purpose == DictationContextPurpose::Dictation
+            && options.insert_text
+            && options.output_target == DictationOutputTarget::ForegroundApp;
+        let capture_window = async {
+            if collect_window {
+                host_context
+                    .capture_window_with_mode(
+                        preferences.window_context_capture_mode,
+                        preferences.window_context_screenshot_threshold,
+                    )
+                    .await
+            } else {
+                None
             }
-        }
+        };
+        let capture_cursor = async {
+            if captured_options.front_app.is_none()
+                || (preferences.cursor_context_enabled && captured_options.cursor_context.is_none())
+            {
+                match host_context
+                    .capture(preferences.cursor_context_enabled)
+                    .await
+                {
+                    Ok(capture) => {
+                        captured_options.front_app = captured_options.front_app.take().or(capture.front_app);
+                        if preferences.cursor_context_enabled {
+                            captured_options.cursor_context =
+                                captured_options.cursor_context.take().or(capture.cursor_context);
+                        }
+                    }
+                    Err(error) => log::warn!("host context capture failed: {error}"),
+                }
+            }
+        };
+        let ((), window_context) = tokio::join!(capture_cursor, capture_window);
         let options = &captured_options;
         let style_pack_id = options
             .style_pack_id
@@ -9448,6 +9502,14 @@ impl OpenLessBackend {
             options,
         );
         context.pipeline_mode = pipeline_mode;
+        context.polish.window_context_requested = collect_window;
+        if !traditional || context.uses_llm_polisher() {
+            match window_context {
+                Some(crate::host_document::WindowCapture::Text(text)) => context.polish.window_context = Some(text),
+                Some(crate::host_document::WindowCapture::Screenshot(image)) => context.polish.window_screenshot = Some(image),
+                None => {}
+            }
+        }
         if purpose == DictationContextPurpose::Dictation
             && !context.polish.translation_active
             && preferences.expression_learning_enabled
@@ -10034,6 +10096,8 @@ mod tests {
     struct FakeHostContext(
         std::sync::atomic::AtomicUsize,
         std::sync::atomic::AtomicUsize,
+        std::sync::atomic::AtomicUsize,
+        std::sync::atomic::AtomicU32,
     );
 
     impl HostContextAdapter for FakeHostContext {
@@ -10052,6 +10116,29 @@ mod tests {
                 })
             })
         }
+        fn capture_window_with_mode(
+            &self,
+            mode: crate::host_document::WindowCaptureMode,
+            screenshot_threshold: u32,
+        ) -> BoxFuture<'static, Option<crate::host_document::WindowCapture>> {
+            assert_eq!(mode, crate::host_document::WindowCaptureMode::TextWithScreenshotFallback);
+            self.3.store(screenshot_threshold, Ordering::Release);
+            let text = self.capture_window();
+            boxed(async move { text.await.map(crate::host_document::WindowCapture::Text) })
+        }
+        fn capture_window(
+            &self,
+        ) -> BoxFuture<'static, Option<crate::host_document::WindowContext>> {
+            self.2.fetch_add(1, Ordering::AcqRel);
+            boxed(async {
+                Some(crate::host_document::WindowContext {
+                    title: Some("Fixture chat".into()),
+                    domain: None,
+                    visible_text: "Previous message refers to QuartzEdge".into(),
+                })
+            })
+        }
+
     }
 
     #[derive(Default)]
@@ -10110,6 +10197,7 @@ mod tests {
                     has_audio_recording: None,
                     asr_call_label: None,
                     llm_call_label: None,
+                    history_window_context: None,
                 })
             })
         }
@@ -10303,6 +10391,7 @@ mod tests {
                     has_audio_recording: None,
                     asr_call_label: None,
                     llm_call_label: None,
+                    history_window_context: None,
                 })
             })
         }
@@ -13689,6 +13778,8 @@ mod tests {
         assert_eq!(host_context.0.load(Ordering::Acquire), 1);
         assert_eq!(host_context.1.load(Ordering::Acquire), 0);
         assert!(context.polish.cursor_context.is_none());
+        assert_eq!(host_context.2.load(Ordering::Acquire), 0);
+        assert!(context.polish.window_context.is_none());
         assert_eq!(
             context.polish.front_app.as_deref(),
             Some("Terminal (com.apple.Terminal)")
@@ -13724,6 +13815,27 @@ mod tests {
             .await
             .unwrap();
         assert!(context.polish.cursor_context.is_none());
+        let mut preferences = backend.get_preferences();
+        preferences.window_context_enabled = true;
+        preferences.window_context_capture_mode =
+            crate::host_document::WindowCaptureMode::TextWithScreenshotFallback;
+        preferences.window_context_screenshot_threshold = 900;
+        backend.set_preferences(preferences).unwrap();
+        let window_only = backend
+            .capture_dictation_context(&DictationStartOptions::default(), DictationContextPurpose::Dictation)
+            .await
+            .unwrap();
+        assert_eq!(host_context.2.load(Ordering::Acquire), 1);
+        assert_eq!(host_context.3.load(Ordering::Acquire), 900);
+        assert!(window_only.polish.cursor_context.is_none());
+        let (system, user) = window_only.effective_polish_prompts("current speech");
+        assert!(!system.contains("QuartzEdge"));
+        assert!(user.contains("<window_context>"));
+        assert!(user.contains("QuartzEdge"));
+
+        let mut preferences = backend.get_preferences();
+        preferences.window_context_enabled = false;
+        backend.set_preferences(preferences).unwrap();
         backend.start().await.unwrap();
         backend.start_dictation().await.unwrap();
         backend.stop_dictation().await.unwrap();
@@ -18140,6 +18252,7 @@ mod tests {
                         has_audio_recording: None,
                         asr_call_label: None,
                         llm_call_label: None,
+                        history_window_context: None,
                     })
                 })
             }
@@ -18315,6 +18428,7 @@ mod tests {
                         has_audio_recording: None,
                         asr_call_label: None,
                         llm_call_label: None,
+                        history_window_context: None,
                     })
                 })
             }

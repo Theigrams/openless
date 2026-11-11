@@ -28,7 +28,6 @@ pub const OMNI_GEMINI_PROVIDER_ID: &str = "gemini";
 /// Omni request default timeout (seconds). Longer than plain text polish:
 /// base64 WAV upload plus audio-model generation.
 const OMNI_DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 90;
-const BODY_PREVIEW_LIMIT: usize = 200;
 
 #[derive(Clone, Debug)]
 pub struct OmniConfig {
@@ -165,8 +164,7 @@ impl OpenAICompatibleOmni {
             .text()
             .await
             .map_err(crate::polish::llm_error_from_reqwest)?;
-        let preview_end = BODY_PREVIEW_LIMIT.min(body_text.len());
-        let preview = safe_str_slice(&body_text, preview_end);
+        let preview = crate::polish::provider_response_preview(body, &body_text);
         log::info!("[omni] HTTP {} body={}", status.as_u16(), preview);
         if !status.is_success() {
             return Err(LLMError::InvalidResponse {
@@ -207,8 +205,7 @@ impl OpenAICompatibleOmni {
                 .text()
                 .await
                 .map_err(crate::polish::llm_error_from_reqwest)?;
-            let preview_end = BODY_PREVIEW_LIMIT.min(body_text.len());
-            let preview = safe_str_slice(&body_text, preview_end);
+            let preview = crate::polish::provider_response_preview(body, &body_text);
             log::error!("[omni] streaming HTTP {} body={}", status.as_u16(), preview);
             return Err(LLMError::InvalidResponse {
                 status: status.as_u16(),
@@ -325,6 +322,7 @@ impl OpenAICompatibleOmni {
         system_prompt: &str,
         user_text: &str,
         wav_bytes: Option<&[u8]>,
+        screenshot: Option<&crate::host_document::WindowScreenshot>,
         on_delta: F,
         should_cancel: C,
     ) -> Result<String, LLMError>
@@ -332,7 +330,16 @@ impl OpenAICompatibleOmni {
         F: Fn(&str) + Send + Sync,
         C: Fn() -> bool + Send + Sync,
     {
-        let messages = self.build_messages(system_prompt, user_text, wav_bytes);
+        let mut messages = self.build_messages(system_prompt, user_text, wav_bytes);
+        if let Some(screenshot) = screenshot {
+            let turn = &mut messages[1]["content"];
+            let image = crate::polish::chat_image_part(screenshot);
+            if let Some(parts) = turn.as_array_mut() {
+                parts.push(image);
+            } else {
+                *turn = json!([{"type": "text", "text": user_text}, image]);
+            }
+        }
         let body = self.omni_body(true, messages);
         let url = chat_completions_url(&self.config.base_url);
         log::info!(
@@ -454,7 +461,7 @@ impl OmniProvider {
             }
             Self::Gemini { provider, .. } => {
                 provider
-                    .complete_omni(system_prompt, user_text, wav_bytes)
+                    .complete_omni(system_prompt, user_text, wav_bytes, None)
                     .await
             }
             Self::OpenAI(provider) => provider.complete(system_prompt, user_text, wav_bytes).await,
@@ -477,6 +484,26 @@ impl OmniProvider {
         F: Fn(&str) + Send + Sync,
         C: Fn() -> bool + Send + Sync,
     {
+        self.complete_streaming_with_window(system_prompt, user_text, wav_bytes, None, on_delta, should_cancel).await
+    }
+
+    pub(crate) fn supports_window_image(&self) -> bool {
+        !matches!(self, Self::GeminiTranscribe { .. })
+    }
+
+    pub(crate) async fn complete_streaming_with_window<F, C>(
+        &self,
+        system_prompt: &str,
+        user_text: &str,
+        wav_bytes: Option<&[u8]>,
+        screenshot: Option<&crate::host_document::WindowScreenshot>,
+        on_delta: F,
+        should_cancel: C,
+    ) -> Result<String, LLMError>
+    where
+        F: Fn(&str) + Send + Sync,
+        C: Fn() -> bool + Send + Sync,
+    {
         match self {
             Self::GeminiTranscribe { provider, .. } => {
                 provider
@@ -485,7 +512,7 @@ impl OmniProvider {
             }
             Self::Gemini { provider, .. } => {
                 let text = provider
-                    .complete_omni(system_prompt, user_text, wav_bytes)
+                    .complete_omni(system_prompt, user_text, wav_bytes, screenshot)
                     .await?;
                 on_delta(&text);
                 Ok(text)
@@ -496,6 +523,7 @@ impl OmniProvider {
                         system_prompt,
                         user_text,
                         wav_bytes,
+                        screenshot,
                         on_delta,
                         should_cancel,
                     )
@@ -580,7 +608,7 @@ mod tests {
         ).await;
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            provider.complete_streaming("system", "", Some(&[0u8; 8]), |_| {}, || false),
+            provider.complete_streaming("system", "", Some(&[0u8; 8]), None, |_| {}, || false),
         )
         .await;
         let _ = release.send(());
@@ -596,7 +624,7 @@ mod tests {
         let (provider, release, server) = open_sse("data: [DONE]\n\n").await;
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(2),
-            provider.complete_streaming("system", "", None, |_| {}, || false),
+            provider.complete_streaming("system", "", None, None, |_| {}, || false),
         )
         .await;
         let _ = release.send(());
@@ -627,6 +655,7 @@ mod tests {
         let request = provider.complete_streaming(
             "system",
             "",
+            None,
             None,
             |_| {
                 let _ = seen.send(());

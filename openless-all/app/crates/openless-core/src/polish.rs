@@ -228,6 +228,29 @@ pub enum LLMError {
     CodexAuth(String),
 }
 
+/// Some gateways echo request fields in errors. Avoid retaining image bytes in diagnostics.
+pub(crate) fn provider_response_preview<'a>(request: &Value, response: &'a str) -> &'a str {
+    let has_image = ["messages", "input", "contents"].iter().any(|key| {
+        request[*key].as_array().and_then(|turns| turns.last()).is_some_and(|turn| {
+            turn["content"].as_array().or_else(|| turn["parts"].as_array()).is_some_and(|parts| {
+                parts.iter().any(|part| {
+                    matches!(part["type"].as_str(), Some("image_url" | "input_image" | "image"))
+                        || part["inlineData"]["mimeType"] == "image/png"
+                })
+            })
+        })
+    });
+    if has_image {
+        "[image request response omitted]"
+    } else {
+        safe_str_slice(response, BODY_PREVIEW_LIMIT.min(response.len()))
+    }
+}
+
+pub(crate) fn image_request_rejected(error: &LLMError) -> bool {
+    matches!(error, LLMError::InvalidResponse { status: 400 | 413 | 415 | 422, .. })
+}
+
 pub(crate) fn llm_error_from_reqwest(error: reqwest::Error) -> LLMError {
     if error.is_timeout() {
         LLMError::Timeout
@@ -275,7 +298,7 @@ impl ActiveLLMProvider {
         matches!(self, Self::OpenAI(_) | Self::Codex(_))
     }
 
-    pub async fn polish_streaming<F, C>(
+    pub async fn polish_streaming<'a, F, C>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -285,7 +308,7 @@ impl ActiveLLMProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
         on_delta: F,
@@ -307,7 +330,7 @@ impl ActiveLLMProvider {
                         chinese_script_preference,
                         output_language_preference,
                         front_app,
-                        cursor_context,
+                        reference,
                         prior_turns,
                         edit_plan_input,
                         on_delta,
@@ -326,7 +349,7 @@ impl ActiveLLMProvider {
                         chinese_script_preference,
                         output_language_preference,
                         front_app,
-                        cursor_context,
+                        reference,
                         prior_turns,
                         edit_plan_input,
                         on_delta,
@@ -337,7 +360,7 @@ impl ActiveLLMProvider {
         }
     }
 
-    pub async fn polish(
+    pub async fn polish<'a>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -347,7 +370,7 @@ impl ActiveLLMProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
     ) -> Result<String, LLMError> {
@@ -363,7 +386,7 @@ impl ActiveLLMProvider {
                         chinese_script_preference,
                         output_language_preference,
                         front_app,
-                        cursor_context,
+                        reference,
                         prior_turns,
                         edit_plan_input,
                     )
@@ -380,7 +403,7 @@ impl ActiveLLMProvider {
                         chinese_script_preference,
                         output_language_preference,
                         front_app,
-                        cursor_context,
+                        reference,
                         prior_turns,
                         edit_plan_input,
                     )
@@ -606,7 +629,7 @@ impl OpenAICompatibleLLMProvider {
         self.dictation_session_id = Some(session_id);
     }
 
-    pub async fn polish(
+    pub async fn polish<'a>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -616,10 +639,11 @@ impl OpenAICompatibleLLMProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
     ) -> Result<String, LLMError> {
+        let reference = reference.into();
         let (system_prompt, user_prompt) = crate::prompt_compose::compose_polish_prompts_for_input(
             raw_text,
             mode,
@@ -629,7 +653,7 @@ impl OpenAICompatibleLLMProvider {
             chinese_script_preference,
             output_language_preference,
             front_app,
-            cursor_context,
+            reference,
             !prior_turns.is_empty(),
             edit_plan_input,
         );
@@ -648,7 +672,7 @@ impl OpenAICompatibleLLMProvider {
         // (1758 chars) hit the same wall on 3 consecutive manual re-polishes even
         // though the model was producing normally each time.
         let budget = polish_total_timeout_secs(raw_text.chars().count());
-        if prior_turns.is_empty() {
+        if prior_turns.is_empty() && reference.screenshot.is_none() {
             self.chat_completion(&system_prompt, &user_prompt, budget)
                 .await
         } else {
@@ -657,6 +681,7 @@ impl OpenAICompatibleLLMProvider {
                 prior_turns,
                 &user_prompt,
                 budget,
+                reference.screenshot,
             )
             .await
         }
@@ -670,7 +695,7 @@ impl OpenAICompatibleLLMProvider {
     ///
     /// `should_cancel` lets the caller break the SSE read loop immediately on user
     /// cancel, avoiding wasted LLM quota.
-    pub async fn polish_streaming<F, C>(
+    pub async fn polish_streaming<'a, F, C>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -680,7 +705,7 @@ impl OpenAICompatibleLLMProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
         on_delta: F,
@@ -690,6 +715,7 @@ impl OpenAICompatibleLLMProvider {
         F: Fn(&str) + Send + Sync,
         C: Fn() -> bool + Send + Sync,
     {
+        let reference = reference.into();
         let (system_prompt, user_prompt) = crate::prompt_compose::compose_polish_prompts_for_input(
             raw_text,
             mode,
@@ -699,11 +725,12 @@ impl OpenAICompatibleLLMProvider {
             chinese_script_preference,
             output_language_preference,
             front_app,
-            cursor_context,
+            reference,
             !prior_turns.is_empty(),
             edit_plan_input,
         );
-        let messages = build_polish_history_messages(&system_prompt, prior_turns, &user_prompt);
+        let mut messages = build_polish_history_messages(&system_prompt, prior_turns, &user_prompt);
+        attach_window_image(&mut messages, self.config.protocol.format, reference.screenshot);
         log::info!(
             "[llm] polish_streaming provider={} model={} prior_turns={} raw_chars={} raw_hash={}",
             self.config.provider_id,
@@ -822,9 +849,11 @@ impl OpenAICompatibleLLMProvider {
         prior_turns: &[(String, String)],
         user_prompt: &str,
         budget: Duration,
+        screenshot: Option<&crate::host_document::WindowScreenshot>,
     ) -> Result<String, LLMError> {
         let url = self.config.protocol.format.url(&self.config.base_url)?;
-        let messages = build_polish_history_messages(system_prompt, prior_turns, user_prompt);
+        let mut messages = build_polish_history_messages(system_prompt, prior_turns, user_prompt);
+        attach_window_image(&mut messages, self.config.protocol.format, screenshot);
         let body = self.chat_body(false, messages);
 
         log::info!(
@@ -978,8 +1007,7 @@ impl OpenAICompatibleLLMProvider {
         let status = response.status();
         let body_text = response.text().await.map_err(llm_error_from_reqwest)?;
 
-        let preview_end = BODY_PREVIEW_LIMIT.min(body_text.len());
-        let preview = safe_str_slice(&body_text, preview_end);
+        let preview = provider_response_preview(body, &body_text);
         log::info!(
             "[llm] request_id={} HTTP {} response_bytes={}",
             request_id,
@@ -1130,8 +1158,7 @@ impl OpenAICompatibleLLMProvider {
             };
             return Err(LLMError::InvalidResponse {
                 status: status.as_u16(),
-                body: safe_str_slice(&body_text, BODY_PREVIEW_LIMIT.min(body_text.len()))
-                    .to_string(),
+                body: provider_response_preview(&body, &body_text).to_string(),
             });
         }
         let mut events = TextEventStream::new(self.config.protocol.format);
@@ -1357,7 +1384,7 @@ impl CodexOAuthLLMProvider {
         Self { config, client }
     }
 
-    pub async fn polish(
+    pub async fn polish<'a>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -1367,7 +1394,7 @@ impl CodexOAuthLLMProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
     ) -> Result<String, LLMError> {
@@ -1380,7 +1407,7 @@ impl CodexOAuthLLMProvider {
             chinese_script_preference,
             output_language_preference,
             front_app,
-            cursor_context,
+            reference,
             prior_turns,
             edit_plan_input,
             |_| {},
@@ -1441,7 +1468,7 @@ impl CodexOAuthLLMProvider {
             .await
     }
 
-    pub async fn polish_streaming<F, C>(
+    pub async fn polish_streaming<'a, F, C>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -1451,7 +1478,7 @@ impl CodexOAuthLLMProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
         on_delta: F,
@@ -1461,6 +1488,7 @@ impl CodexOAuthLLMProvider {
         F: Fn(&str) + Send + Sync,
         C: Fn() -> bool + Send + Sync,
     {
+        let reference = reference.into();
         let (system_prompt, user_prompt) = crate::prompt_compose::compose_polish_prompts_for_input(
             raw_text,
             mode,
@@ -1470,16 +1498,13 @@ impl CodexOAuthLLMProvider {
             chinese_script_preference,
             output_language_preference,
             front_app,
-            cursor_context,
+            reference,
             !prior_turns.is_empty(),
             edit_plan_input,
         );
-        self.codex_responses(
-            build_polish_history_messages(&system_prompt, prior_turns, &user_prompt),
-            on_delta,
-            should_cancel,
-        )
-        .await
+        let mut messages = build_polish_history_messages(&system_prompt, prior_turns, &user_prompt);
+        attach_window_image(&mut messages, LlmRequestFormat::Responses, reference.screenshot);
+        self.codex_responses(messages, on_delta, should_cancel).await
     }
 
     pub async fn translate_to_streaming<F, C>(
@@ -1574,8 +1599,7 @@ impl CodexOAuthLLMProvider {
         let status = response.status();
         if !status.is_success() {
             let body_text = response.text().await.map_err(llm_error_from_reqwest)?;
-            let preview_end = BODY_PREVIEW_LIMIT.min(body_text.len());
-            let preview = safe_str_slice(&body_text, preview_end);
+            let preview = provider_response_preview(&body, &body_text);
             log::error!("[llm] codex HTTP {} body={}", status.as_u16(), preview);
             return Err(LLMError::InvalidResponse {
                 status: status.as_u16(),
@@ -1726,6 +1750,35 @@ fn build_polish_history_messages(
     messages
 }
 
+pub(crate) fn chat_image_part(screenshot: &crate::host_document::WindowScreenshot) -> Value {
+    json!({"type": "image_url", "image_url": {"url": screenshot.data_url()}})
+}
+
+fn attach_window_image(
+    messages: &mut [Value],
+    format: LlmRequestFormat,
+    screenshot: Option<&crate::host_document::WindowScreenshot>,
+) {
+    let (Some(screenshot), Some(turn)) = (screenshot, messages.last_mut()) else {
+        return;
+    };
+    let text = turn["content"].as_str().unwrap_or_default();
+    let (text_type, image) = match format {
+        LlmRequestFormat::ChatCompletions => ("text", chat_image_part(screenshot)),
+        LlmRequestFormat::Responses => (
+            "input_text",
+            json!({"type": "input_image", "image_url": screenshot.data_url()}),
+        ),
+        LlmRequestFormat::Messages => (
+            "text",
+            json!({"type": "image", "source": {
+                "type": "base64", "media_type": "image/png", "data": screenshot.base64()
+            }}),
+        ),
+    };
+    turn["content"] = json!([{ "type": text_type, "text": text }, image]);
+}
+
 pub(crate) fn chat_completions_url(base_url: &str) -> String {
     let trimmed = base_url.trim();
     let Ok(mut url) = reqwest::Url::parse(trimmed) else {
@@ -1871,7 +1924,7 @@ fn codex_input_from_chat_messages(messages: &[Value]) -> Vec<Value> {
         .iter()
         .filter_map(|message| {
             let role = message.get("role").and_then(|v| v.as_str())?;
-            let text = message.get("content").and_then(|v| v.as_str())?;
+            let content = message.get("content")?;
             let (codex_role, content_type) = match role {
                 "system" => ("developer", "input_text"),
                 "assistant" => ("assistant", "output_text"),
@@ -1880,7 +1933,11 @@ fn codex_input_from_chat_messages(messages: &[Value]) -> Vec<Value> {
             Some(json!({
                 "type": "message",
                 "role": codex_role,
-                "content": [{ "type": content_type, "text": text }],
+                "content": if let Some(text) = content.as_str() {
+                    json!([{ "type": content_type, "text": text }])
+                } else {
+                    Value::Array(content.as_array()?.clone())
+                },
             }))
         })
         .collect()

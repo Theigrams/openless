@@ -4,6 +4,7 @@
 //! account routing, protocol defaults, cancellation and output semantics stay
 //! in core so Tauri and Linux cannot drift.
 
+use crate::history::HistoryWindowContext;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -1292,7 +1293,7 @@ async fn run_cloud_polish(
     );
     let on_delta = |delta: &str| stream.publish(delta);
     let should_cancel = || stream.should_cancel();
-    let result = match &provider {
+    let request = async |reference: crate::prompt_compose::PolishReference<'_>| match &provider {
         CloudPolisherProvider::OpenAi(provider @ crate::polish::ActiveLLMProvider::Codex(_))
             if !context.polish.translation_active =>
         {
@@ -1306,7 +1307,7 @@ async fn run_cloud_polish(
                     context.polish.chinese_script_preference,
                     context.polish.output_language_preference,
                     context.polish.front_app.as_deref(),
-                    context.polish.cursor_context.as_deref(),
+                    reference,
                     &prior_turns,
                     context.polish.edit_plan_input,
                 )
@@ -1323,7 +1324,7 @@ async fn run_cloud_polish(
                     context.polish.chinese_script_preference,
                     context.polish.output_language_preference,
                     context.polish.front_app.as_deref(),
-                    context.polish.cursor_context.as_deref(),
+                    reference,
                     &prior_turns,
                     context.polish.edit_plan_input,
                     on_delta,
@@ -1342,7 +1343,7 @@ async fn run_cloud_polish(
                     context.polish.chinese_script_preference,
                     context.polish.output_language_preference,
                     context.polish.front_app.as_deref(),
-                    context.polish.cursor_context.as_deref(),
+                    reference,
                     &prior_turns,
                     context.polish.edit_plan_input,
                 )
@@ -1359,7 +1360,7 @@ async fn run_cloud_polish(
                     context.polish.chinese_script_preference,
                     context.polish.output_language_preference,
                     context.polish.front_app.as_deref(),
-                    context.polish.cursor_context.as_deref(),
+                    reference,
                     &prior_turns,
                     context.polish.edit_plan_input,
                     on_delta,
@@ -1368,6 +1369,17 @@ async fn run_cloud_polish(
                 .await
         }
     };
+    let mut reference = context.polish.reference();
+    let mut result = request(reference).await;
+    let mut image_rejected = false;
+    if reference.screenshot.is_some()
+        && result.as_ref().is_err_and(crate::polish::image_request_rejected)
+        && !should_cancel()
+    {
+        image_rejected = true;
+        reference.screenshot = None;
+        result = request(reference).await;
+    }
     if let Some(error) = stream.take_error() {
         return Err(error);
     }
@@ -1381,6 +1393,7 @@ async fn run_cloud_polish(
                 text,
                 source_text,
                 llm_call_label: None,
+                history_window_context: None,
             },
             None => {
                 log::warn!(
@@ -1428,6 +1441,8 @@ async fn run_cloud_polish(
                     return Err(error);
                 }
                 let text = result.map_err(map_polish_error)?;
+                reference.window = None;
+                reference.screenshot = None;
                 PolishOutput::text(text.trim().to_owned())
             }
         }
@@ -1443,6 +1458,9 @@ async fn run_cloud_polish(
             "LLM provider returned empty polish output",
         ));
     }
+    output.history_window_context = HistoryWindowContext::from_attachment(
+        reference.window, reference.screenshot,
+    ).or_else(|| image_rejected.then_some(HistoryWindowContext::ImageRejected));
     output.llm_call_label = Some(call_label);
     Ok(output)
 }
@@ -2587,7 +2605,18 @@ impl DictationEngine for SharedOmniDictationEngine {
                         .collect::<Vec<_>>(),
                 )
             };
+            let screenshot = if is_live || !session.provider.supports_window_image() {
+                None
+            } else {
+                context.polish.window_screenshot.as_ref()
+            };
             let system_prompt = build_omni_prompt(&context);
+            let window_reference = context
+                .polish
+                .window_context
+                .as_ref()
+                .and_then(crate::prompts::window_context_block)
+                .unwrap_or_default();
             let offset = Arc::new(AtomicU64::new(0));
             let publish_error: Arc<Mutex<Option<BackendError>>> = Arc::new(Mutex::new(None));
             let sink = Arc::clone(&progress);
@@ -2623,11 +2652,33 @@ impl DictationEngine for SharedOmniDictationEngine {
                 _ = cancellation.cancelled() => Err(cancelled_omni_error()),
                 result = async {
                     if let Some(live) = live {
-                        live.finish().await.map(|transcript| transcript.text).map_err(map_asr_error)
+                        live.finish().await
+                            .map(|transcript| (transcript.text, None))
+                            .map_err(map_asr_error)
                     } else {
-                        provider.complete_streaming(
-                            &system_prompt, "", Some(&wav), on_delta, should_cancel,
-                        ).await.map_err(map_omni_error)
+                        let request = async |image: Option<&crate::host_document::WindowScreenshot>| {
+                            let prompt = if image.is_some() {
+                                format!("{system_prompt}\n\n{}", crate::host_document::WINDOW_SCREENSHOT_INSTRUCTION)
+                            } else {
+                                system_prompt.clone()
+                            };
+                            provider.complete_streaming_with_window(
+                                &prompt, &window_reference, Some(&wav), image, &on_delta, &should_cancel,
+                            ).await
+                        };
+                        let mut output = request(screenshot).await;
+                        let image_rejected = screenshot.is_some()
+                            && output.as_ref().is_err_and(crate::polish::image_request_rejected)
+                            && !should_cancel();
+                        if image_rejected {
+                            output = request(None).await;
+                        }
+                        let used_screenshot = if image_rejected { None } else { screenshot };
+                        let attachment = HistoryWindowContext::from_attachment(
+                            context.polish.window_context.as_ref(),
+                            used_screenshot,
+                        ).or_else(|| image_rejected.then_some(HistoryWindowContext::ImageRejected));
+                        output.map(|text| (text, attachment)).map_err(map_omni_error)
                     }
                 } => result,
             };
@@ -2640,8 +2691,10 @@ impl DictationEngine for SharedOmniDictationEngine {
                 failure.has_audio_recording = archive.as_ref().map(|item| item.is_available());
                 return Err(failure);
             }
-            let output = match result {
-                Ok(output) if !output.trim().is_empty() => output.trim().to_string(),
+            let (output, history_window_context) = match result {
+                Ok((output, attachment)) if !output.trim().is_empty() => {
+                    (output.trim().to_string(), attachment)
+                }
                 Ok(_) => {
                     let error = BackendError::new(
                         BackendErrorCode::Provider,
@@ -2700,6 +2753,7 @@ impl DictationEngine for SharedOmniDictationEngine {
                 polish_source: None,
                 asr_call_label: None,
                 llm_call_label: None,
+                history_window_context,
                 duration_ms,
                 polish_failed: false,
                 asr_ms: None,
@@ -2824,6 +2878,7 @@ fn remove_omni_session(
 fn build_omni_prompt(context: &DictationContext) -> String {
     let mut snapshot = context.clone();
     snapshot.polish.translation_active = false;
+    snapshot.polish.window_screenshot = None;
     let mut prompt = snapshot.effective_polish_system_prompt();
     if context.polish.translation_active {
         prompt.push_str(&format!(
@@ -2925,15 +2980,21 @@ mod tests {
         preset: &str,
         cancel: bool,
         fallback: bool,
+        screenshot: Option<bool>,
     ) {
         use crate::llm_protocol::LlmRequestFormat;
+        use base64::Engine;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        // Synthetic 1x1 PNG. All requests in this test stay on loopback.
+        const PNG: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
 
         async fn check_request(
             socket: &mut tokio::net::TcpStream,
             gemini: bool,
             format: LlmRequestFormat,
             prefix: &str,
+            expect_image: bool,
         ) {
             let mut request = Vec::new();
             let mut buf = [0_u8; 4096];
@@ -2954,6 +3015,32 @@ mod tests {
                     if request.len() >= end + 4 + length {
                         let body: serde_json::Value =
                             serde_json::from_slice(&request[end + 4..]).unwrap();
+                        if expect_image {
+                            let data_url = format!("data:image/png;base64,{PNG}");
+                            let actual = if gemini {
+                                &body["contents"][0]["parts"][1]
+                            } else if format == LlmRequestFormat::Responses {
+                                &body["input"][1]["content"][1]
+                            } else {
+                                let turns = body["messages"].as_array().unwrap();
+                                &turns.last().unwrap()["content"][1]
+                            };
+                            let expected = if gemini {
+                                serde_json::json!({"inlineData":{"mimeType":"image/png","data":PNG}})
+                            } else {
+                                match format {
+                                    LlmRequestFormat::ChatCompletions => serde_json::json!({"type":"image_url","image_url":{"url":data_url}}),
+                                    LlmRequestFormat::Responses => serde_json::json!({"type":"input_image","image_url":data_url}),
+                                    LlmRequestFormat::Messages => serde_json::json!({"type":"image","source":{"type":"base64","media_type":"image/png","data":PNG}}),
+                                }
+                            };
+                            assert_eq!(*actual, expected);
+                            assert!(body.to_string().contains("attached foreground window image"));
+                            assert!(!crate::polish::provider_response_preview(&body, PNG).contains(PNG));
+                        } else {
+                            assert!(!body.to_string().contains(PNG));
+                            assert!(!body.to_string().contains("attached foreground window image"));
+                        }
                         if gemini {
                             assert!(headers.contains(":streamGenerateContent?alt=sse"));
                         } else {
@@ -3003,7 +3090,14 @@ mod tests {
         let (finish, finishing) = tokio::sync::oneshot::channel();
         let server = tokio::spawn(async move {
             let (mut socket, _) = listener.accept().await.unwrap();
-            check_request(&mut socket, gemini, format, prefix).await;
+            check_request(&mut socket, gemini, format, prefix, screenshot.is_some()).await;
+            if screenshot == Some(true) {
+                let echo = format!("HTTP/1.1 415 Unsupported Media Type\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{PNG}", PNG.len());
+                socket.write_all(echo.as_bytes()).await.unwrap();
+                socket.shutdown().await.unwrap();
+                (socket, _) = listener.accept().await.unwrap();
+                check_request(&mut socket, gemini, format, prefix, false).await;
+            }
             socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").await.unwrap();
             let event = |text: &str| {
                 let value = if gemini {
@@ -3066,7 +3160,7 @@ mod tests {
                 socket.write_all(b"0\r\n\r\n").await.unwrap();
                 socket.shutdown().await.unwrap();
                 (socket, _) = listener.accept().await.unwrap();
-                check_request(&mut socket, gemini, format, prefix).await;
+                check_request(&mut socket, gemini, format, prefix, false).await;
                 socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n").await.unwrap();
             } else {
                 socket
@@ -3133,6 +3227,11 @@ mod tests {
             ..DictationContext::default()
         };
         context.llm.model = Some("fixture-model".into());
+        if screenshot.is_some() {
+            let png = base64::engine::general_purpose::STANDARD.decode(PNG).unwrap();
+            context.polish.window_screenshot =
+                Some(crate::host_document::WindowScreenshot::from_png(&png).unwrap());
+        }
         context.polish.translation_active = true;
         context.polish.translation_target_language = "English".into();
         let sink = Arc::new(ObservedTranslationStream::new());
@@ -3195,6 +3294,14 @@ mod tests {
                 .unwrap();
             server.await.unwrap();
             assert_eq!(output.text, "Hello 🌍");
+            match (screenshot, fallback, output.history_window_context.as_ref()) {
+                (Some(true), _, Some(HistoryWindowContext::ImageRejected)) => {}
+                (Some(false), false, Some(HistoryWindowContext::Screenshot(image))) => {
+                    assert_eq!(image.base64(), PNG);
+                }
+                (None, _, None) | (Some(false), true, None) => {}
+                _ => panic!("history must reflect the attachment used for the final output"),
+            }
             assert_eq!(
                 output.source_text.as_deref(),
                 if fallback {
@@ -3223,7 +3330,10 @@ mod tests {
                 .iter()
                 .filter(|line| line.contains("request_id="))
                 .collect();
-            assert_eq!(requests.len(), if fallback { 2 } else { 1 });
+            assert_eq!(
+                requests.len(),
+                1 + usize::from(fallback) + usize::from(screenshot == Some(true))
+            );
             let request_ids: std::collections::HashSet<_> = requests
                 .iter()
                 .map(|line| {
@@ -3236,9 +3346,10 @@ mod tests {
             if !cancel {
                 for request_id in request_ids {
                     let records = crate::testing::logging::matching(request_id);
-                    assert!(records
-                        .iter()
-                        .any(|line| line.contains("[llm] stream done")));
+                    if screenshot != Some(true) {
+                        assert!(records.iter().any(|line| line.contains("[llm] stream done")));
+                    }
+                    assert!(!records.iter().any(|line| line.contains(PNG)));
                     assert!(!records
                         .iter()
                         .any(|line| line.contains("原始语音") || line.contains("Hello 🌍")));
@@ -3258,6 +3369,7 @@ mod tests {
             "openai-compatible",
             cancel,
             fallback,
+            None,
         )
         .await;
     }
@@ -3267,11 +3379,11 @@ mod tests {
         for format in crate::llm_protocol::LlmRequestFormat::ALL {
             for preset in ["custom", "opencode"] {
                 for fallback in [false, true] {
-                    assert_translation_streams_for_protocol(false, format, preset, false, fallback)
+                    assert_translation_streams_for_protocol(false, format, preset, false, fallback, None)
                         .await;
                 }
             }
-            assert_translation_streams_for_protocol(false, format, "custom", true, false).await;
+            assert_translation_streams_for_protocol(false, format, "custom", true, false, None).await;
         }
     }
 
@@ -3293,6 +3405,20 @@ mod tests {
     #[tokio::test]
     async fn translation_without_markers_streams_the_plain_translation_fallback() {
         assert_translation_streams_before_completion(false, false, true).await;
+    }
+
+    #[tokio::test]
+    async fn window_image_requests_follow_protocol_and_recover_when_rejected() {
+        use crate::llm_protocol::LlmRequestFormat;
+        for format in LlmRequestFormat::ALL {
+            assert_translation_streams_for_protocol(false, format, "custom", false, false, Some(false)).await;
+        }
+        assert_translation_streams_for_protocol(
+            true, LlmRequestFormat::ChatCompletions, "custom", false, false, Some(false),
+        ).await;
+        assert_translation_streams_for_protocol(
+            false, LlmRequestFormat::ChatCompletions, "custom", false, false, Some(true),
+        ).await;
     }
 
     #[test]

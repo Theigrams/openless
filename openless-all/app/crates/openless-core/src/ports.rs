@@ -53,6 +53,25 @@ pub trait HostContextAdapter: Send + Sync {
         &self,
         include_cursor: bool,
     ) -> BoxFuture<'static, Result<HostContextCapture, BackendError>>;
+
+    /// Capture visible text outside the bound input field, when explicitly enabled.
+    fn capture_window(&self) -> BoxFuture<'static, Option<crate::host_document::WindowContext>> {
+        Box::pin(async { None })
+    }
+
+    fn capture_window_with_mode(
+        &self,
+        mode: crate::host_document::WindowCaptureMode,
+        _screenshot_threshold: u32,
+    ) -> BoxFuture<'static, Option<crate::host_document::WindowCapture>> {
+        let capture = self.capture_window();
+        Box::pin(async move {
+            if mode == crate::host_document::WindowCaptureMode::Screenshot {
+                return None;
+            }
+            capture.await.map(crate::host_document::WindowCapture::Text)
+        })
+    }
 }
 
 pub struct NoopHostContextAdapter;
@@ -214,6 +233,7 @@ pub struct EngineResult {
     pub has_audio_recording: Option<bool>,
     pub asr_call_label: Option<crate::auxiliary::AsrCallLabel>,
     pub llm_call_label: Option<crate::polish::LlmCallLabel>,
+    pub history_window_context: Option<crate::history::HistoryWindowContext>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -262,6 +282,7 @@ pub struct PolishOutput {
     pub text: String,
     pub source_text: Option<String>,
     pub llm_call_label: Option<crate::polish::LlmCallLabel>,
+    pub history_window_context: Option<crate::history::HistoryWindowContext>,
 }
 
 impl PolishOutput {
@@ -270,6 +291,7 @@ impl PolishOutput {
             text: text.into(),
             source_text: None,
             llm_call_label: None,
+            history_window_context: None,
         }
     }
 }

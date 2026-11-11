@@ -14,6 +14,8 @@ import {
   applyQuickNoteRepolish,
   deleteHistoryEntry,
   listHistory,
+  listHistoryWindowContexts,
+  readHistoryWindowContext,
   listStylePacks,
   readAudioRecording,
   repolish,
@@ -25,6 +27,7 @@ import {
   packDisplayName,
   resolveRepolishRetryPackIdWithFallback,
 } from '../lib/history-repolish';
+import type { HistoryWindowContextKind, HistoryWindowContextPreview } from '../lib/ipc/history';
 import { canRetranscribeHistoryEntry } from '../lib/history-retranscribe';
 import { useMobileLayout } from '../lib/useMobileLayout';
 import type { DictationSession, PolishMode, StylePack } from '../lib/types';
@@ -81,6 +84,8 @@ export function History({ quickNotesOnly = false }: { quickNotesOnly?: boolean }
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [items, setItems] = useState<DictationSession[]>([]);
+  const [windowContextKinds, setWindowContextKinds] = useState<Record<string, HistoryWindowContextKind>>({});
+  const loadWindowContexts = os === 'mac' && !quickNotesOnly;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -146,12 +151,16 @@ export function History({ quickNotesOnly = false }: { quickNotesOnly?: boolean }
       if (itemsRef.current.length === 0) setLoading(true);
       setLoadError(null);
       try {
-        const data = await listHistory();
+        const [data, contexts] = await Promise.all([
+          listHistory(),
+          loadWindowContexts ? listHistoryWindowContexts().catch(() => ({})) : {},
+        ]);
         if (seq !== refreshSeq.current) return;
         const visible = quickNotesOnly
           ? data.filter((entry) => entry.source === 'quick_note')
           : data;
         setItems(visible);
+        setWindowContextKinds(contexts);
         setActionError(null);
         setSelectedId((prev) =>
           prev && visible.some((s) => s.id === prev) ? prev : (visible[0]?.id ?? null),
@@ -166,7 +175,7 @@ export function History({ quickNotesOnly = false }: { quickNotesOnly?: boolean }
         if (seq === refreshSeq.current) setLoading(false);
       }
     },
-    [quickNotesOnly],
+    [quickNotesOnly, loadWindowContexts],
   );
 
   useEffect(() => {
@@ -864,6 +873,13 @@ export function History({ quickNotesOnly = false }: { quickNotesOnly?: boolean }
                     </>
                   )}
                 </div>
+                {windowContextKinds[item.id] && (
+                  <HistoryWindowContextDisclosure
+                    key={item.id}
+                    sessionId={item.id}
+                    kind={windowContextKinds[item.id]}
+                  />
+                )}
                 {/* Default to showing only the polished result; the raw text can still be
                   expanded on demand, sparing users two duplicate columns every time. */}
                 <div style={{ display: 'grid', gap: 12 }}>
@@ -1605,6 +1621,89 @@ function isUserCancelled(message: string): boolean {
     normalized === 'canceled' ||
     normalized === 'user cancelled' ||
     normalized === 'user canceled'
+  );
+}
+
+function HistoryWindowContextDisclosure({
+  sessionId,
+  kind,
+}: {
+  sessionId: string;
+  kind: HistoryWindowContextKind;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<HistoryWindowContextPreview | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const hasContent = kind === 'screenshot' || kind === 'accessibilityText';
+
+  useEffect(() => {
+    if (!open || !hasContent) return;
+    let current = true;
+    readHistoryWindowContext(sessionId).then(
+      (result) => {
+        if (!current) return;
+        if (result) setPreview(result);
+        else setUnavailable(true);
+      },
+      () => {
+        if (current) setUnavailable(true);
+      },
+    );
+    return () => { current = false; };
+  }, [open, hasContent, sessionId]);
+
+  const label = t(`history.windowContext.${hasContent ? kind : 'notAttached'}`);
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <Btn
+        variant="soft"
+        size="sm"
+        icon={open ? 'chevDown' : 'chevRight'}
+        ariaExpanded={open}
+        onClick={() => {
+          if (open) {
+            setPreview(null);
+            setUnavailable(false);
+          }
+          setOpen(!open);
+        }}
+      >
+        {label}
+      </Btn>
+      {open && (
+        <div style={{ marginTop: 8, color: 'var(--ol-ink-2)', fontSize: 13 }}>
+          {preview?.kind === 'screenshot' && (
+            <img
+              src={preview.image}
+              alt={t('history.windowContext.screenshot')}
+              style={{ display: 'block', maxWidth: '100%', maxHeight: 420, objectFit: 'contain' }}
+            />
+          )}
+          {preview?.kind === 'accessibilityText' && (
+            <>
+              {(preview.text.title || preview.text.domain) && (
+                <div style={{ marginBottom: 6, overflowWrap: 'anywhere' }}>
+                  {[preview.text.title, preview.text.domain].filter(Boolean).join(' · ')}
+                </div>
+              )}
+              <div
+                className="ol-thinscroll"
+                style={{
+                  whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: 280,
+                  overflowY: 'auto', padding: 10, borderRadius: 'var(--ol-r-md)',
+                  background: 'var(--ol-surface-2)',
+                }}
+              >
+                {preview.text.visibleText}
+              </div>
+            </>
+          )}
+          {!hasContent && t(`history.windowContext.${kind === 'imageRejected' ? 'retried' : 'missing'}`)}
+          {hasContent && !preview && (unavailable ? t('history.windowContext.unavailable') : t('common.loading'))}
+        </div>
+      )}
+    </div>
   );
 }
 

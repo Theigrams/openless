@@ -6,6 +6,21 @@ export function listHistory(): Promise<DictationSession[]> {
   return invokeOrMock('list_history', undefined, () => mockHistory);
 }
 
+export type HistoryWindowContextKind = 'screenshot' | 'accessibilityText' | 'notAttached' | 'imageRejected';
+
+export type HistoryWindowContextPreview =
+  | { kind: 'screenshot'; image: string }
+  | { kind: 'accessibilityText'; text: { title: string | null; domain: string | null; visibleText: string } }
+  | { kind: 'notAttached' | 'imageRejected' };
+
+export function listHistoryWindowContexts(): Promise<Record<string, HistoryWindowContextKind>> {
+  return invokeOrMock('list_history_window_contexts', undefined, () => ({}));
+}
+
+export function readHistoryWindowContext(sessionId: string): Promise<HistoryWindowContextPreview | null> {
+  return invokeOrMock('read_history_window_context', { sessionId }, () => null);
+}
+
 /** Daily dictation activity counts (ascending by date), the overview page's yearly heatmap
     data source. Decoupled from the history retention policy. */
 export function getActivityStats(): Promise<ActivityDay[]> {

@@ -725,6 +725,14 @@ export const en: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "Window screenshot",
+      accessibilityText: "Accessibility text",
+      notAttached: "No window context attached",
+      retried: "The model endpoint rejected the image. The final result came from a retry without it.",
+      missing: "The final model request contained no window context.",
+      unavailable: "The local preview is unavailable.",
+    },
     exportError: 'Failed to export the recording. Please try again.',
     kicker: 'HISTORY',
     title: 'History',
@@ -1297,6 +1305,19 @@ export const en: typeof zhCN = {
     dataStorage: {
       title: 'Data storage',
       desc: 'Conversation history and context kept on this device.',
+      windowContextTitle: "Window context",
+      windowContextLabel: "Use window context",
+      windowContextDesc: "During dictation, use the active window as reference for terms and names. This setting applies to this device. Sent window context stays in local history and is deleted with its entry.",
+      windowContextCapture: "Capture method",
+      windowContextAX: "Accessibility text",
+      windowContextScreenshot: "Window screenshot",
+      windowContextFallback: "Use screenshot when text is sparse",
+      windowContextFallbackDesc: "Try a window screenshot when visible text has fewer than {{count}} non-whitespace characters.",
+      windowContextScreenshotThreshold: "Screenshot threshold (non-whitespace characters)",
+      windowContextScreenshotDesc: "The resized image accompanies the current request to your selected model. The model must accept images, and macOS requires Screen Recording permission.",
+      windowContextScreenPermission: "Screen Recording permission",
+      windowScreenshotProbeBtn: "Screenshot probe (in {{n}} s)",
+      windowScreenshotProbeDesc: "Preview the active window screenshot locally.",
       cursorContextLabel: 'Cursor context (experimental)',
       cursorContextDesc:
         'Send a short stretch of text around the cursor with polish requests as reference for names, homophones and pronouns (macOS / Windows / Android). Dictation, quick notes and cloud notes all use it, but the context itself is never written to notes, history or logs; with a cloud model it is sent to that provider with the polish request. This switch is separate from local vocabulary learning. Password fields, terminals and known sensitive apps are excluded.',
@@ -1318,8 +1339,14 @@ export const en: typeof zhCN = {
       cursorProbeLabel: 'Cursor context probe',
       cursorProbeDesc:
         'Click, then switch to the target app and click into a text field before the countdown ends. The probe reads the text around your cursor there, so you can see which apps are readable and which the safety gate blocks. One read, sent to no provider.',
-      cursorProbeBtn: 'Probe (in 5s)',
+      cursorProbeBtn: 'Probe (in {{n}}s)',
       cursorProbeCountdown: 'Reading in {{n}}s…',
+      windowProbeLabel: 'Window context probe',
+      windowProbeDesc:
+        'Click, then switch to the target app and focus a text field within {{n}} seconds. Preview the window title, web domain, and visible text outside the field using the same rules as dictation. Results are shown only here.',
+      windowProbeTitle: 'Window title',
+      windowProbeDomain: 'Web domain',
+      windowProbeText: 'Visible text',
     },
     marketplace: {
       title: 'Marketplace',

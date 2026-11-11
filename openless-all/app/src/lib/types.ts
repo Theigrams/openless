@@ -121,6 +121,10 @@ export interface HostDocumentReadResult {
   elapsedMs: number;
 }
 
+export interface WindowContextReadResult extends Omit<HostDocumentReadResult, 'window'> {
+  window: { title: string | null; domain: string | null; visibleText: string } | null;
+}
+
 /** A correction suggestion awaiting user confirmation (Tier2). The backend keeps it only in memory
  *  and it is lost on restart — suggestions are ephemeral; repeating the same mistake regenerates one. */
 export interface PendingCorrection {
@@ -574,6 +578,9 @@ export interface UserPreferences {
    *  UIA password controls (Windows) / no-personalized-learning editors (Android) / password
    *  managers / terminals are always hard-blocked. */
   cursorContextEnabled: boolean;
+  windowContextEnabled: boolean;
+  windowContextCaptureMode: 'text' | 'textWithScreenshotFallback' | 'screenshot';
+  windowContextScreenshotThreshold: number;
   vocabularyLearningEnabled: boolean;
   expressionLearningEnabled: boolean;
   vocabularyLearningSettings: {

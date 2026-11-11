@@ -33,6 +33,8 @@
 
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg(target_os = "macos")]
+pub(crate) use macos::{probe_window_context, read_window_context};
 #[cfg(target_os = "windows")]
 mod uia_text;
 #[cfg(target_os = "windows")]
@@ -203,18 +205,18 @@ impl BlockReason {
 /// Full result of one read; the debug command serializes it straight to the frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct HostDocumentReadResult {
+pub struct HostDocumentReadResult<W = DocumentWindow> {
     pub status: HostDocumentStatus,
     /// Machine-readable detail: `BlockReason::as_str()` or the unavailability reason.
     pub reason: Option<String>,
-    pub window: Option<DocumentWindow>,
+    pub window: Option<W>,
     pub app_name: Option<String>,
     pub bundle_id: Option<String>,
     pub elapsed_ms: u64,
 }
 
-impl HostDocumentReadResult {
-    fn new(status: HostDocumentStatus, reason: Option<String>) -> Self {
+impl<W> HostDocumentReadResult<W> {
+    pub(crate) fn new(status: HostDocumentStatus, reason: Option<String>) -> Self {
         Self {
             status,
             reason,

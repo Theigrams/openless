@@ -141,8 +141,21 @@ pub struct DictationPolishContext {
     pub polish_skip_max_chars: u32,
     pub front_app: Option<String>,
     pub cursor_context: Option<String>,
+    pub window_context_requested: bool,
+    pub window_context: Option<crate::host_document::WindowContext>,
+    pub window_screenshot: Option<crate::host_document::WindowScreenshot>,
     /// Newest-first turns captured when the session starts.
     pub prior_turns: Vec<PolishHistoryTurn>,
+}
+
+impl DictationPolishContext {
+    pub(crate) fn reference(&self) -> crate::prompt_compose::PolishReference<'_> {
+        crate::prompt_compose::PolishReference {
+            cursor: self.cursor_context.as_deref(),
+            window: self.window_context.as_ref(),
+            screenshot: self.window_screenshot.as_ref(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -392,6 +405,9 @@ impl DictationContext {
                 polish_skip_max_chars: preferences.polish_skip_max_chars,
                 front_app: options.front_app.clone().and_then(non_blank_owned),
                 cursor_context: options.cursor_context.clone().and_then(non_blank_owned),
+                window_context_requested: false,
+                window_context: None,
+                window_screenshot: None,
                 prior_turns,
             },
             insertion: DictationInsertionContext {
@@ -540,7 +556,7 @@ impl DictationContext {
             self.polish.chinese_script_preference,
             self.polish.output_language_preference,
             self.polish.front_app.as_deref(),
-            self.polish.cursor_context.as_deref(),
+            self.polish.reference(),
             !self.polish.prior_turns.is_empty(),
             self.polish.edit_plan_input,
         );

@@ -721,9 +721,13 @@ impl RestoreLease for NativeLease {
         operation_id: &str,
         committed: bool,
     ) -> DocumentResult<crate::cloud_sync_e2ee_documents::RestoreReceipt> {
-        self.permit
-            .finish_restore(operation_id, &self.scope_id, committed)
-            .map(receipt)
+        let completed = self.permit.finish_restore(operation_id, &self.scope_id, committed)?;
+        if completed.committed {
+            if let Err(error) = self.store.inner.repositories.history.prune_window_context_after_restore() {
+                log::warn!("failed to prune local window context after restore: {error}");
+            }
+        }
+        Ok(receipt(completed))
     }
 }
 fn receipt(value: gate::GateRestoreReceipt) -> crate::cloud_sync_e2ee_documents::RestoreReceipt {

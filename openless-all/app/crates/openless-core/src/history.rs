@@ -1,14 +1,96 @@
 //! Newest-first dictation history with retention and count caps.
 
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::config::{Clock, SystemClock};
 use crate::errors::{BackendError, BackendErrorCode};
+use crate::host_document::{WindowContext, WindowScreenshot, WINDOW_SCREENSHOT_MAX_BYTES};
 use crate::persistence::{atomic_write, persistence_error};
 use crate::types::{DictationSession, HistorySource};
 
 pub const HISTORY_CAP: usize = 200;
+
+/// Content attached to the request that produced the final model output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HistoryWindowContext {
+    Screenshot(WindowScreenshot),
+    AccessibilityText(WindowContext),
+    NotAttached,
+    ImageRejected,
+}
+
+impl HistoryWindowContext {
+    pub(crate) fn from_attachment(
+        text: Option<&WindowContext>,
+        image: Option<&WindowScreenshot>,
+    ) -> Option<Self> {
+        image.cloned().map(Self::Screenshot).or_else(|| {
+            text.and_then(WindowContext::for_prompt).map(Self::AccessibilityText)
+        })
+    }
+
+    fn kind(&self) -> HistoryWindowContextKind {
+        match self {
+            Self::Screenshot(_) => HistoryWindowContextKind::Screenshot,
+            Self::AccessibilityText(_) => HistoryWindowContextKind::AccessibilityText,
+            Self::NotAttached => HistoryWindowContextKind::NotAttached,
+            Self::ImageRejected => HistoryWindowContextKind::ImageRejected,
+        }
+    }
+
+    pub fn preview(self) -> HistoryWindowContextPreview {
+        match self {
+            Self::Screenshot(image) => HistoryWindowContextPreview::Screenshot {
+                image: image.data_url(),
+            },
+            Self::AccessibilityText(text) => HistoryWindowContextPreview::AccessibilityText { text },
+            Self::NotAttached => HistoryWindowContextPreview::NotAttached,
+            Self::ImageRejected => HistoryWindowContextPreview::ImageRejected,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HistoryWindowContextKind {
+    Screenshot,
+    AccessibilityText,
+    NotAttached,
+    ImageRejected,
+}
+
+impl HistoryWindowContextKind {
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Screenshot => "png",
+            Self::AccessibilityText => "json",
+            Self::NotAttached => "none",
+            Self::ImageRejected => "rejected",
+        }
+    }
+
+    fn from_extension(extension: &str) -> Option<Self> {
+        match extension {
+            "png" => Some(Self::Screenshot),
+            "json" => Some(Self::AccessibilityText),
+            "none" => Some(Self::NotAttached),
+            "rejected" => Some(Self::ImageRejected),
+            _ => None,
+        }
+    }
+}
+
+#[derive(serde::Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum HistoryWindowContextPreview {
+    Screenshot { image: String },
+    AccessibilityText { text: WindowContext },
+    NotAttached,
+    ImageRejected,
+}
 
 pub struct HistoryStore {
     path: PathBuf,
@@ -97,12 +179,23 @@ impl HistoryStore {
         retention_days: u32,
         max_entries: Option<u32>,
     ) -> Result<(), BackendError> {
+        self.upsert_with_window_context(session, retention_days, max_entries, None)
+    }
+
+    pub(crate) fn upsert_with_window_context(
+        &self,
+        session: DictationSession,
+        retention_days: u32,
+        max_entries: Option<u32>,
+        window_context: Option<&HistoryWindowContext>,
+    ) -> Result<(), BackendError> {
         crate::cloud_sync_e2ee_store::gate::with_registered_mutation(
             &self.path,
             crate::cloud_sync_e2ee_store::gate::ChangeOrigin::User,
             || {
                 let _guard = self.lock_store()?;
                 let mut sessions = self.read_locked()?;
+                let session_id = session.id.clone();
                 if let Some(existing) = sessions.iter_mut().find(|item| item.id == session.id) {
                     let mut replacement = session;
                     if replacement.has_audio_recording.is_none() {
@@ -113,7 +206,15 @@ impl HistoryStore {
                     sessions.insert(0, session);
                 }
                 retain_with_policy(&mut sessions, retention_days, max_entries, self.now_utc());
-                self.write_locked(&sessions)
+                self.write_locked(&sessions)?;
+                if let Some(context) = window_context {
+                    if sessions.iter().any(|entry| entry.id == session_id) {
+                        if let Err(error) = self.save_window_context_locked(&session_id, context) {
+                            log::warn!("failed to save local window context: {error}");
+                        }
+                    }
+                }
+                Ok(())
             },
         )
     }
@@ -202,6 +303,133 @@ impl HistoryStore {
         )
     }
 
+    fn window_context_directory(&self) -> PathBuf {
+        self.path.with_file_name("history-window-context")
+    }
+
+    /// Sidecars are local and never enter the synchronized history records.
+    fn window_context_files_locked(
+        &self,
+    ) -> impl Iterator<Item = (String, HistoryWindowContextKind, PathBuf)> {
+        fs::read_dir(self.window_context_directory())
+            .into_iter()
+            .flatten()
+            .filter_map(Result::ok)
+            .filter_map(|entry| {
+                if !entry.file_type().ok()?.is_file() {
+                    return None;
+                }
+                let path = entry.path();
+                let id = path.file_stem()?.to_str()?.to_owned();
+                let uuid = uuid::Uuid::parse_str(&id).ok()?;
+                if uuid.to_string() != id {
+                    return None;
+                }
+                let kind = HistoryWindowContextKind::from_extension(path.extension()?.to_str()?)?;
+                Some((id, kind, path))
+            })
+    }
+
+    pub fn window_context_kinds(
+        &self,
+    ) -> Result<BTreeMap<String, HistoryWindowContextKind>, BackendError> {
+        let _guard = self.lock_store()?;
+        let sessions = self.read_locked()?;
+        let ids: HashSet<&str> = sessions.iter().map(|entry| entry.id.as_str()).collect();
+        Ok(self.window_context_files_locked()
+            .filter(|(id, _, _)| ids.contains(id.as_str()))
+            .map(|(id, kind, _)| (id, kind))
+            .collect())
+    }
+
+    pub fn read_window_context(&self, id: &str) -> Result<Option<HistoryWindowContext>, BackendError> {
+        let _guard = self.lock_store()?;
+        if !self.read_locked()?.iter().any(|entry| entry.id == id) {
+            return Ok(None);
+        }
+        let Some((_, kind, path)) = self.window_context_files_locked()
+            .find(|(entry_id, _, _)| entry_id == id) else {
+            return Ok(None);
+        };
+        let read = || {
+            // A PNG is the largest supported payload. Bound reads even if a file was modified.
+            use std::io::Read;
+            let file = fs::File::open(&path).map_err(|_| persistence_error("open local window context"))?;
+            let mut bytes = Vec::new();
+            file.take(WINDOW_SCREENSHOT_MAX_BYTES as u64 + 1).read_to_end(&mut bytes)
+                .map_err(|_| persistence_error("read local window context"))?;
+            if bytes.len() > WINDOW_SCREENSHOT_MAX_BYTES {
+                return Err(persistence_error("local window context too large"));
+            }
+            Ok(bytes)
+        };
+        let context = match kind {
+            HistoryWindowContextKind::Screenshot => HistoryWindowContext::Screenshot(
+                WindowScreenshot::from_png(&read()?)
+                    .ok_or_else(|| persistence_error("decode local window screenshot"))?,
+            ),
+            HistoryWindowContextKind::AccessibilityText => HistoryWindowContext::AccessibilityText(
+                serde_json::from_slice(&read()?)
+                    .map_err(|_| persistence_error("decode local window text"))?,
+            ),
+            HistoryWindowContextKind::NotAttached => HistoryWindowContext::NotAttached,
+            HistoryWindowContextKind::ImageRejected => HistoryWindowContext::ImageRejected,
+        };
+        Ok(Some(context))
+    }
+
+    fn save_window_context_locked(
+        &self,
+        id: &str,
+        context: &HistoryWindowContext,
+    ) -> Result<(), BackendError> {
+        let uuid = uuid::Uuid::parse_str(id)
+            .map_err(|_| persistence_error("invalid local window context identifier"))?;
+        if uuid.to_string() != id {
+            return Err(persistence_error("invalid local window context identifier"));
+        }
+        let path = self.window_context_directory().join(format!("{id}.{}", context.kind().extension()));
+        match context {
+            HistoryWindowContext::Screenshot(image) => atomic_write(&path, image.png())?,
+            HistoryWindowContext::AccessibilityText(text) => atomic_write(
+                &path,
+                &serde_json::to_vec(text).map_err(|_| persistence_error("encode local window text"))?,
+            )?,
+            HistoryWindowContext::NotAttached | HistoryWindowContext::ImageRejected => {
+                atomic_write(&path, &[])?
+            }
+        }
+        for (entry_id, _, existing) in self.window_context_files_locked() {
+            if entry_id == id && existing != path {
+                self.remove_window_context_file(&existing);
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_window_context_file(&self, path: &Path) {
+        if let Err(error) = fs::remove_file(path) {
+            if error.kind() != std::io::ErrorKind::NotFound {
+                log::warn!("failed to remove local window context: {}", error.kind());
+            }
+        }
+    }
+
+    pub(crate) fn prune_window_context_after_restore(&self) -> Result<(), BackendError> {
+        let _guard = self.lock_store()?;
+        self.prune_window_context_locked(&self.read_locked()?);
+        Ok(())
+    }
+
+    fn prune_window_context_locked(&self, sessions: &[DictationSession]) {
+        let ids: HashSet<&str> = sessions.iter().map(|entry| entry.id.as_str()).collect();
+        for (id, _, path) in self.window_context_files_locked() {
+            if !ids.contains(id.as_str()) {
+                self.remove_window_context_file(&path);
+            }
+        }
+    }
+
     fn lock_store(&self) -> Result<std::sync::MutexGuard<'_, ()>, BackendError> {
         self.lock.lock().map_err(|_| {
             BackendError::new(BackendErrorCode::Internal, "history store lock poisoned")
@@ -215,7 +443,9 @@ impl HistoryStore {
     fn write_locked(&self, sessions: &[DictationSession]) -> Result<(), BackendError> {
         let json = serde_json::to_vec_pretty(sessions)
             .map_err(|_| persistence_error("encode history entries"))?;
-        atomic_write(&self.path, &json)
+        atomic_write(&self.path, &json)?;
+        self.prune_window_context_locked(sessions);
+        Ok(())
     }
 }
 
@@ -287,6 +517,65 @@ mod tests {
             asr_ms: None,
             polish_ms: None,
         }
+    }
+
+    #[test]
+    fn window_context_previews_are_local_and_follow_history_retention() {
+        use base64::Engine;
+        let dir = std::env::temp_dir().join(format!("openless-window-history-{}", uuid::Uuid::new_v4()));
+        let store = HistoryStore::at_data_dir(&dir);
+        let image_id = uuid::Uuid::new_v4().to_string();
+        let text_id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
+        let png = base64::engine::general_purpose::STANDARD.decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC",
+        ).unwrap();
+        let screenshot = HistoryWindowContext::Screenshot(WindowScreenshot::from_png(&png).unwrap());
+        let text = WindowContext {
+            title: Some("fixture window".into()),
+            domain: None,
+            visible_text: format!("  {}  ", "窗".repeat(4000)),
+        };
+        let text = HistoryWindowContext::from_attachment(Some(&text), None).unwrap();
+        store.upsert_with_window_context(
+            session(&image_id, (now - chrono::Duration::days(4)).to_rfc3339()),
+            0, None, Some(&screenshot),
+        ).unwrap();
+        store.upsert_with_window_context(
+            session(&text_id, now.to_rfc3339()), 0, None, Some(&text),
+        ).unwrap();
+
+        let kinds = store.window_context_kinds().unwrap();
+        assert_eq!(kinds.get(&image_id), Some(&HistoryWindowContextKind::Screenshot));
+        assert_eq!(kinds.get(&text_id), Some(&HistoryWindowContextKind::AccessibilityText));
+        assert_eq!(store.read_window_context(&image_id).unwrap(), Some(screenshot));
+        assert_eq!(store.read_window_context(&text_id).unwrap(), Some(text));
+        let json = fs::read_to_string(dir.join("history.json")).unwrap();
+        assert!(!json.contains("fixture window") && !json.contains("screenshot"));
+        let preview = store.read_window_context(&text_id).unwrap().unwrap().preview();
+        let json = serde_json::to_value(preview).unwrap();
+        assert_eq!(json["kind"], "accessibilityText");
+        assert_eq!(
+            json["text"]["visibleText"].as_str().unwrap().chars().count(),
+            crate::host_document::WINDOW_CONTEXT_PROMPT_CHARS,
+        );
+
+        let retry_id = uuid::Uuid::new_v4().to_string();
+        store.upsert_with_window_context(
+            session(&retry_id, now.to_rfc3339()),
+            2, None, Some(&HistoryWindowContext::ImageRejected),
+        ).unwrap();
+        assert_eq!(store.read_window_context(&image_id).unwrap(), None);
+        assert!(!dir.join("history-window-context").join(format!("{image_id}.png")).exists());
+        assert_eq!(store.read_window_context(&retry_id).unwrap(), Some(HistoryWindowContext::ImageRejected));
+
+        store.delete(&text_id).unwrap();
+        assert_eq!(store.read_window_context(&text_id).unwrap(), None);
+        assert!(!dir.join("history-window-context").join(format!("{text_id}.json")).exists());
+        store.clear().unwrap();
+        assert!(store.window_context_kinds().unwrap().is_empty());
+        assert_eq!(fs::read_dir(dir.join("history-window-context")).unwrap().count(), 0);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

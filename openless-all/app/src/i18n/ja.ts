@@ -713,6 +713,14 @@ export const ja: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "ウィンドウのスクリーンショット",
+      accessibilityText: "アクセシビリティのテキスト",
+      notAttached: "ウィンドウの情報なし",
+      retried: "モデルが画像を拒否しました。画像なしで再試行した結果です。",
+      missing: "最終リクエストにウィンドウの情報は含まれていません。",
+      unavailable: "端末上のプレビューを表示できません。",
+    },
     exportError: '録音のエクスポートに失敗しました。もう一度お試しください。',
     kicker: '履歴',
     title: '履歴',
@@ -1280,6 +1288,19 @@ export const ja: typeof zhCN = {
     dataStorage: {
       title: 'データ保存',
       desc: 'この端末に保存される会話履歴とコンテキスト。',
+      windowContextTitle: "ウィンドウのコンテキスト",
+      windowContextLabel: "ウィンドウのコンテキストを使用",
+      windowContextDesc: "音声入力時に、アクティブなウィンドウを用語や名前の参照情報として使います。この設定はこの端末に適用されます。 送信したウィンドウ情報は端末の履歴に保存され、履歴項目と一緒に削除されます。",
+      windowContextCapture: "取得方法",
+      windowContextAX: "アクセシビリティのテキスト",
+      windowContextScreenshot: "ウィンドウのスクリーンショット",
+      windowContextFallback: "テキストが少ない場合はスクリーンショットを使用",
+      windowContextFallbackDesc: "表示テキストが空白を除いて{{count}}文字未満の場合、ウィンドウのキャプチャを試みます。",
+      windowContextScreenshotThreshold: "スクリーンショットのしきい値（空白を除く文字数）",
+      windowContextScreenshotDesc: "縮小画像を今回のリクエストと一緒に選択したモデルへ送信します。画像入力対応のモデルと、macOSの画面収録の許可が必要です。",
+      windowContextScreenPermission: "画面収録の許可",
+      windowScreenshotProbeBtn: "スクリーンショットをテスト（{{n}} 秒後）",
+      windowScreenshotProbeDesc: "アクティブなウィンドウの画像を端末上で確認します。",
       cursorContextLabel: 'カーソル文脈（実験的）',
       cursorContextDesc:
         '推敲時にカーソル付近の短い文章を参考情報としてモデルへ送信し、固有名詞・同音語・指示語の判断に使います（macOS / Windows / Android）。音声入力、クイックメモ、クラウドメモのいずれも参照しますが、コンテキスト自体がメモ・履歴・ログに書き込まれることはありません。クラウドモデル使用時は、推敲リクエストとともにそのプロバイダーへ送信されます。端末内の単語学習とは独立した設定です。パスワード欄、ターミナル、既知の機密アプリは除外します。',
@@ -1301,8 +1322,14 @@ export const ja: typeof zhCN = {
       cursorProbeLabel: 'カーソル文脈プローブ',
       cursorProbeDesc:
         'クリックしたあと、カウントダウン中に対象アプリへ切り替えて入力欄をクリックしてください。そこのカーソル周辺の原文を読み取り、どのアプリが読めてどれが安全ゲートに阻まれるかを確認できます。読み取りは一度きりで、どのプロバイダにも送信しません。',
-      cursorProbeBtn: 'プローブ（5 秒後）',
+      cursorProbeBtn: 'プローブ（{{n}} 秒後）',
       cursorProbeCountdown: '{{n}} 秒後に読み取り…',
+      windowProbeLabel: 'ウィンドウコンテキストの確認',
+      windowProbeDesc:
+        'クリックしてから {{n}} 秒以内に対象アプリに切り替え、入力欄を選択してください。音声入力と同じルールでウィンドウのタイトル、ウェブドメイン、入力欄の外に見えるテキストを確認できます。結果はここだけに表示されます。',
+      windowProbeTitle: 'ウィンドウタイトル',
+      windowProbeDomain: 'ウェブドメイン',
+      windowProbeText: '表示されているテキスト',
     },
     marketplace: {
       title: '拡張マーケット',

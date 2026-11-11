@@ -707,6 +707,14 @@ export const ko: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "창 스크린샷",
+      accessibilityText: "손쉬운 사용 텍스트",
+      notAttached: "창 컨텍스트 첨부 없음",
+      retried: "모델이 이미지를 거부해 이미지 없이 다시 요청했습니다.",
+      missing: "최종 모델 요청에 창 컨텍스트가 포함되지 않았습니다.",
+      unavailable: "로컬 미리보기를 사용할 수 없습니다.",
+    },
     exportError: '녹음을 내보내지 못했습니다. 다시 시도해 주세요.',
     kicker: '기록',
     title: '기록',
@@ -1272,6 +1280,19 @@ export const ko: typeof zhCN = {
     dataStorage: {
       title: '데이터 저장',
       desc: '이 기기에 보관되는 대화 기록과 컨텍스트.',
+      windowContextTitle: "창 컨텍스트",
+      windowContextLabel: "창 컨텍스트 사용",
+      windowContextDesc: "받아쓰기 중 활성 창을 이름과 용어의 참고 자료로 사용합니다. 이 설정은 이 기기에 적용됩니다. 전송된 창 컨텍스트는 로컬 기록에 저장되고 해당 항목과 함께 삭제됩니다.",
+      windowContextCapture: "캡처 방법",
+      windowContextAX: "손쉬운 사용 텍스트",
+      windowContextScreenshot: "창 스크린샷",
+      windowContextFallback: "텍스트가 적을 때 스크린샷 사용",
+      windowContextFallbackDesc: "표시 텍스트가 공백을 제외하고 {{count}}자 미만이면 창 캡처를 시도합니다.",
+      windowContextScreenshotThreshold: "스크린샷 전환 기준 (공백 제외 글자 수)",
+      windowContextScreenshotDesc: "크기를 줄인 이미지가 현재 요청과 함께 선택한 모델로 전송됩니다. 이미지 입력을 지원하는 모델과 macOS 화면 기록 권한이 필요합니다.",
+      windowContextScreenPermission: "화면 기록 권한",
+      windowScreenshotProbeBtn: "스크린샷 테스트 ({{n}}초 후)",
+      windowScreenshotProbeDesc: "활성 창의 스크린샷을 로컬에서 미리 봅니다.",
       cursorContextLabel: '커서 문맥 (실험적)',
       cursorContextDesc:
         '다듬기 요청 시 커서 주변의 짧은 텍스트를 참고 자료로 모델에 보내 고유명사, 동음이의어, 지시어 판단에 사용합니다(macOS / Windows / Android). 받아쓰기, 빠른 메모, 클라우드 메모 모두 참고하지만 컨텍스트 자체는 메모, 기록, 로그에 저장되지 않습니다. 클라우드 모델을 사용하면 다듬기 요청과 함께 해당 제공업체로 전송됩니다. 기기 내 단어 학습과 별도 설정입니다. 비밀번호 입력란, 터미널, 알려진 민감한 앱은 제외됩니다.',
@@ -1293,8 +1314,14 @@ export const ko: typeof zhCN = {
       cursorProbeLabel: '커서 문맥 프로브',
       cursorProbeDesc:
         '누른 뒤 카운트다운 안에 대상 앱으로 전환해 입력란을 클릭하세요. 그곳의 커서 주변 원문을 읽어, 어떤 앱이 읽히고 어떤 앱이 안전 게이트에 막히는지 확인할 수 있습니다. 한 번만 읽으며 어떤 제공자에게도 보내지 않습니다.',
-      cursorProbeBtn: '프로브 (5초 후)',
+      cursorProbeBtn: '프로브 ({{n}}초 후)',
       cursorProbeCountdown: '{{n}}초 후 읽기…',
+      windowProbeLabel: '창 컨텍스트 확인',
+      windowProbeDesc:
+        '클릭한 뒤 {{n}}초 안에 대상 앱으로 전환하고 입력란에 포커스를 두세요. 받아쓰기와 같은 규칙으로 창 제목, 웹 도메인, 입력란 밖의 표시 텍스트를 미리 봅니다. 결과는 여기에만 표시됩니다.',
+      windowProbeTitle: '창 제목',
+      windowProbeDomain: '웹 도메인',
+      windowProbeText: '표시 텍스트',
     },
     marketplace: {
       title: '확장 마켓',

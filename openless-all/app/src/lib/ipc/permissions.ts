@@ -17,7 +17,7 @@ export function requestMicrophonePermission(): Promise<PermissionStatus> {
   return invokeOrMock('request_microphone_permission', undefined, () => 'granted' as const);
 }
 
-export function openSystemSettings(pane: 'accessibility' | 'microphone'): Promise<void> {
+export function openSystemSettings(pane: 'accessibility' | 'microphone' | 'screenRecording'): Promise<void> {
   return invokeOrMock('open_system_settings', { pane }, () => undefined);
 }
 

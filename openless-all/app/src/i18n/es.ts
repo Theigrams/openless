@@ -733,6 +733,14 @@ export const es: typeof zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "Captura de ventana",
+      accessibilityText: "Texto de accesibilidad",
+      notAttached: "Sin contexto de ventana adjunto",
+      retried: "El modelo rechazó la imagen. El resultado proviene de un reintento sin ella.",
+      missing: "La solicitud final no incluyó contexto de ventana.",
+      unavailable: "La vista previa local no está disponible.",
+    },
     exportError: 'No se pudo exportar la grabación. Inténtalo de nuevo.',
     kicker: 'HISTORIAL',
     title: 'Historial',
@@ -1315,6 +1323,19 @@ export const es: typeof zhCN = {
     dataStorage: {
       title: 'Almacenamiento de datos',
       desc: 'Historial de conversaciones y contexto guardados en este dispositivo.',
+      windowContextTitle: "Contexto de la ventana",
+      windowContextLabel: "Usar el contexto de la ventana",
+      windowContextDesc: "Usa la ventana activa como referencia para términos y nombres durante el dictado. Este ajuste se aplica a este dispositivo. El contexto de ventana enviado se conserva en el historial local y se elimina con su entrada.",
+      windowContextCapture: "Método de captura",
+      windowContextAX: "Texto de accesibilidad",
+      windowContextScreenshot: "Captura de ventana",
+      windowContextFallback: "Usar una captura cuando haya poco texto",
+      windowContextFallbackDesc: "Intenta capturar la ventana si el texto visible tiene menos de {{count}} caracteres sin contar espacios.",
+      windowContextScreenshotThreshold: "Umbral de captura (caracteres sin espacios)",
+      windowContextScreenshotDesc: "La imagen reducida se envía al modelo seleccionado con la solicitud actual. El modelo debe admitir imágenes y macOS requiere permiso de grabación de pantalla.",
+      windowContextScreenPermission: "Permiso de grabación de pantalla",
+      windowScreenshotProbeBtn: "Probar captura (en {{n}} s)",
+      windowScreenshotProbeDesc: "Muestra una vista previa local de la ventana activa.",
       cursorContextLabel: 'Contexto del cursor (experimental)',
       cursorContextDesc:
         'Envía un fragmento breve del texto cercano al cursor al modelo como referencia para nombres propios, homófonos y pronombres al pulir (macOS / Windows / Android). El dictado, las notas rápidas y las notas en la nube lo usan, pero el contexto en sí nunca se guarda en notas, historial ni registros; con un modelo en la nube se envía a ese proveedor junto con la solicitud de pulido. Es independiente del aprendizaje local. Se excluyen contraseñas, terminales y aplicaciones sensibles conocidas.',
@@ -1336,8 +1357,14 @@ export const es: typeof zhCN = {
       cursorProbeLabel: 'Comprobar contexto del cursor',
       cursorProbeDesc:
         'Pulsa y, antes de que termine la cuenta atrás, cambia a la aplicación de destino y selecciona un campo de texto. Se leerá el texto que rodea al cursor para comprobar qué aplicaciones permiten la lectura y cuáles bloquean las protecciones. Una sola lectura, sin enviarla a ningún proveedor.',
-      cursorProbeBtn: 'Comprobar en 5 s',
+      cursorProbeBtn: 'Comprobar en {{n}} s',
       cursorProbeCountdown: 'Se leerá en {{n}}s…',
+      windowProbeLabel: 'Sonda de contexto de ventana',
+      windowProbeDesc:
+        'Haz clic, cambia a la app de destino y enfoca un campo de texto en {{n}} segundos. La vista previa muestra el título, el dominio web y el texto visible fuera del campo con las mismas reglas del dictado. Los resultados solo se muestran aquí.',
+      windowProbeTitle: 'Título de la ventana',
+      windowProbeDomain: 'Dominio web',
+      windowProbeText: 'Texto visible',
     },
     marketplace: {
       title: 'Catálogo',

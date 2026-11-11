@@ -367,3 +367,57 @@ pub async fn debug_read_cursor_context(
     );
     result
 }
+
+/// Preview one foreground window snapshot locally using the dictation capture path.
+#[tauri::command]
+pub async fn debug_read_window_context(
+    delay_ms: Option<u64>,
+) -> crate::host_document::HostDocumentReadResult<openless_core::host_document::WindowContext> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(delay) = delay_ms.filter(|ms| *ms > 0) {
+            tokio::time::sleep(std::time::Duration::from_millis(delay.min(30_000))).await;
+        }
+        crate::host_document::probe_window_context().await
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = delay_ms;
+        crate::host_document::HostDocumentReadResult::new(
+            crate::host_document::HostDocumentStatus::Unsupported,
+            Some("window context is unsupported on this platform".into()),
+        )
+    }
+}
+
+/// Capture the same bounded PNG used by dictation and preview it only in Debug Tools.
+#[tauri::command]
+pub async fn debug_read_window_screenshot(delay_ms: u64) -> Result<String, &'static str> {
+    #[cfg(target_os = "macos")]
+    {
+        use openless_core::host_document::{
+            WindowCapture, WindowCaptureMode, DEFAULT_WINDOW_SCREENSHOT_THRESHOLD,
+        };
+        extern "C" {
+            fn CGPreflightScreenCaptureAccess() -> bool;
+        }
+
+        if !unsafe { CGPreflightScreenCaptureAccess() } {
+            return Err("screen_recording_permission_required");
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(delay_ms.min(30_000))).await;
+        let target = crate::selection::capture_selection_insertion_target();
+        match crate::host_document::read_window_context(
+            target, WindowCaptureMode::Screenshot, DEFAULT_WINDOW_SCREENSHOT_THRESHOLD,
+        ).await
+        {
+            Some(WindowCapture::Screenshot(image)) => Ok(image.data_url()),
+            _ => Err("window_screenshot_unavailable"),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = delay_ms;
+        Err("window_screenshot_unsupported")
+    }
+}

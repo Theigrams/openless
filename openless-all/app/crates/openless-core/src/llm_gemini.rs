@@ -32,7 +32,6 @@ use crate::types::PolishMode;
 
 const DEFAULT_TEMPERATURE: f32 = 0.3;
 const DEFAULT_REQUEST_TIMEOUT_SECS: u64 = 30;
-const BODY_PREVIEW_LIMIT: usize = 200;
 
 #[derive(Clone, Debug)]
 pub struct GeminiConfig {
@@ -95,7 +94,7 @@ impl GeminiProvider {
         Self { config, client }
     }
 
-    pub async fn polish(
+    pub async fn polish<'a>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -105,10 +104,11 @@ impl GeminiProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
     ) -> Result<String, LLMError> {
+        let reference = reference.into();
         let (system_prompt, user_prompt) = crate::prompt_compose::compose_polish_prompts_for_input(
             raw_text,
             mode,
@@ -118,12 +118,13 @@ impl GeminiProvider {
             chinese_script_preference,
             output_language_preference,
             front_app,
-            cursor_context,
+            reference,
             !prior_turns.is_empty(),
             edit_plan_input,
         );
 
-        let contents = build_polish_history_contents(prior_turns, &user_prompt);
+        let mut contents = build_polish_history_contents(prior_turns, &user_prompt);
+        attach_window_image(&mut contents, reference.screenshot);
         let body = self.build_generate_body(&system_prompt, contents);
         let url = generate_content_url(&self.config.base_url, &self.config.model);
 
@@ -171,7 +172,7 @@ impl GeminiProvider {
         Ok(clean_polish_output(&raw))
     }
 
-    pub async fn polish_streaming<F, C>(
+    pub async fn polish_streaming<'a, F, C>(
         &self,
         raw_text: &str,
         mode: PolishMode,
@@ -181,7 +182,7 @@ impl GeminiProvider {
         chinese_script_preference: ChineseScriptPreference,
         output_language_preference: OutputLanguagePreference,
         front_app: Option<&str>,
-        cursor_context: Option<&str>,
+        reference: impl Into<crate::prompt_compose::PolishReference<'a>> + Send,
         prior_turns: &[(String, String)],
         edit_plan_input: bool,
         on_delta: F,
@@ -191,6 +192,7 @@ impl GeminiProvider {
         F: Fn(&str) + Send + Sync,
         C: Fn() -> bool + Send + Sync,
     {
+        let reference = reference.into();
         let (system_prompt, user_prompt) = crate::prompt_compose::compose_polish_prompts_for_input(
             raw_text,
             mode,
@@ -200,14 +202,13 @@ impl GeminiProvider {
             chinese_script_preference,
             output_language_preference,
             front_app,
-            cursor_context,
+            reference,
             !prior_turns.is_empty(),
             edit_plan_input,
         );
-        let body = self.build_generate_body(
-            &system_prompt,
-            build_polish_history_contents(prior_turns, &user_prompt),
-        );
+        let mut contents = build_polish_history_contents(prior_turns, &user_prompt);
+        attach_window_image(&mut contents, reference.screenshot);
+        let body = self.build_generate_body(&system_prompt, contents);
         let url = stream_generate_content_url(&self.config.base_url, &self.config.model);
         self.send_streaming(&url, &body, on_delta, should_cancel)
             .await
@@ -249,8 +250,10 @@ impl GeminiProvider {
         system_prompt: &str,
         user_text: &str,
         wav_bytes: Option<&[u8]>,
+        screenshot: Option<&crate::host_document::WindowScreenshot>,
     ) -> Result<String, LLMError> {
-        let contents = omni_gemini_contents(user_text, wav_bytes);
+        let mut contents = omni_gemini_contents(user_text, wav_bytes);
+        attach_window_image(&mut contents, screenshot);
         let body = self.build_generate_body(system_prompt, contents);
         let url = generate_content_url(&self.config.base_url, &self.config.model);
 
@@ -374,8 +377,7 @@ impl GeminiProvider {
         let status = response.status();
         let body_text = response.text().await.map_err(llm_error_from_reqwest)?;
 
-        let preview_end = BODY_PREVIEW_LIMIT.min(body_text.len());
-        let preview = safe_str_slice(&body_text, preview_end);
+        let preview = crate::polish::provider_response_preview(body, &body_text);
         log::info!("[llm] HTTP {} body={}", status.as_u16(), preview);
 
         if !status.is_success() {
@@ -406,7 +408,7 @@ impl GeminiProvider {
         let status = response.status();
         if !status.is_success() {
             let body_text = response.text().await.map_err(llm_error_from_reqwest)?;
-            let error = http_failure(status, &body_text);
+            let error = http_failure(status, body, &body_text);
             if should_cancel() {
                 return Err(LLMError::Network("cancelled".into()));
             }
@@ -502,9 +504,8 @@ impl GeminiProvider {
 
 // ─────────────────────── internal helpers ───────────────────────
 
-fn http_failure(status: reqwest::StatusCode, body_text: &str) -> LLMError {
-    let preview_end = BODY_PREVIEW_LIMIT.min(body_text.len());
-    let preview = safe_str_slice(body_text, preview_end);
+fn http_failure(status: reqwest::StatusCode, request: &Value, body_text: &str) -> LLMError {
+    let preview = crate::polish::provider_response_preview(request, body_text);
     log::error!("[llm] HTTP {} body={}", status.as_u16(), preview);
     LLMError::InvalidResponse {
         status: status.as_u16(),
@@ -608,6 +609,19 @@ fn omni_gemini_contents(user_text: &str, wav_bytes: Option<&[u8]>) -> Vec<Value>
         }));
     }
     vec![json!({ "role": "user", "parts": parts })]
+}
+
+fn attach_window_image(
+    contents: &mut [Value],
+    screenshot: Option<&crate::host_document::WindowScreenshot>,
+) {
+    if let (Some(screenshot), Some(turn)) = (screenshot, contents.last_mut()) {
+        if let Some(parts) = turn["parts"].as_array_mut() {
+            parts.push(json!({"inlineData": {
+                "mimeType": "image/png", "data": screenshot.base64(),
+            }}));
+        }
+    }
 }
 
 /// QA chat messages → Gemini contents: the assistant role is renamed to

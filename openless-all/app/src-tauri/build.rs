@@ -35,6 +35,15 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
         println!("cargo:rustc-link-lib=framework=Foundation");
         println!("cargo:rustc-link-lib=framework=CoreAudio");
+        println!("cargo:rerun-if-changed=src/host_document/macos/window_screenshot.m");
+        cc::Build::new()
+            .file("src/host_document/macos/window_screenshot.m")
+            .flag("-fobjc-arc")
+            .flag("-mmacosx-version-min=14.0")
+            .compile("openless_window_screenshot");
+        for framework in ["ScreenCaptureKit", "CoreGraphics", "ImageIO"] {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        }
         let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
         if target_arch == "aarch64" {
             build_experimental_gemma();

@@ -686,6 +686,14 @@ export const zhCN = {
     },
   },
   history: {
+    windowContext: {
+      screenshot: "窗口截图",
+      accessibilityText: "无障碍文字",
+      notAttached: "未附带窗口上下文",
+      retried: "模型接口拒收了图片，最终结果来自无图重试。",
+      missing: "最终模型请求没有附带窗口上下文。",
+      unavailable: "本机预览不可用。",
+    },
     exportError: '导出录音失败，请重试。',
     kicker: '历史记录',
     title: '历史记录',
@@ -1236,6 +1244,19 @@ export const zhCN = {
     dataStorage: {
       title: '数据存储',
       desc: '本机保留的历史会话与对话上下文。',
+      windowContextTitle: "窗口上下文",
+      windowContextLabel: "启用窗口上下文",
+      windowContextDesc: "听写时从活跃窗口获取参考内容，帮助模型理解术语和指代。此设置仅在本机生效。 发送的窗口上下文会保存在本机历史中，随对应记录删除。",
+      windowContextCapture: "采集方式",
+      windowContextAX: "无障碍文字",
+      windowContextScreenshot: "窗口截图",
+      windowContextFallback: "文字不足时改用截图",
+      windowContextFallbackDesc: "可见文字少于 {{count}} 个非空白字符时，尝试发送窗口截图。",
+      windowContextScreenshotThreshold: "截图阈值（非空白字符）",
+      windowContextScreenshotDesc: "截图会等比缩小，并作为图片随当前请求发给所选模型。模型须支持图片输入，macOS 须授予屏幕录制权限。",
+      windowContextScreenPermission: "屏幕录制权限",
+      windowScreenshotProbeBtn: "截图探针（{{n}} 秒后）",
+      windowScreenshotProbeDesc: "预览活跃窗口的截图，仅在本地显示。",
       cursorContextLabel: '光标上下文（实验）',
       cursorContextDesc:
         '润色时把光标附近的一小段文字发给模型作参考，用于专有词、同音词和指代的判断（macOS / Windows / Android）。听写、速记和云笔记都会参考，但上下文本身不会写入笔记、历史或日志；使用云端模型时会随本次润色请求发送给该模型服务。此开关与本地手改学词独立；排除密码框、终端及已知敏感应用。',
@@ -1256,8 +1277,14 @@ export const zhCN = {
       cursorProbeLabel: '光标上下文探针',
       cursorProbeDesc:
         '点一下，然后在倒计时内切到目标 app 并点进输入框——探针会读那里的光标附近原文，用来确认哪些 app 读得到、哪些被安全闸门拦住。只读一次，不发给任何服务商。',
-      cursorProbeBtn: '探测（5 秒后）',
+      cursorProbeBtn: '探测（{{n}} 秒后）',
       cursorProbeCountdown: '{{n}} 秒后读取…',
+      windowProbeLabel: '窗口上下文探针',
+      windowProbeDesc:
+        '点一下，在 {{n}} 秒内切到目标 App 并点进输入框。探针按听写的规则预览窗口标题、网页域名和输入框外的可见文字。结果只在这里显示。',
+      windowProbeTitle: '窗口标题',
+      windowProbeDomain: '网页域名',
+      windowProbeText: '可见文字',
     },
     marketplace: {
       title: '扩展市场',

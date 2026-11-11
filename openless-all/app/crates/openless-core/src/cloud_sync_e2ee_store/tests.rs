@@ -1516,7 +1516,15 @@ async fn deleted_history_rollback_restores_all_local_audio_markers_and_keeps_wav
             fixture
                 .repo
                 .history
-                .append_with_retention(row, 0, None)
+                .upsert_with_window_context(
+                    row, 0, None,
+                    Some(&crate::history::HistoryWindowContext::AccessibilityText(
+                        crate::host_document::WindowContext {
+                            title: None, domain: None,
+                            visible_text: "local-window-attachment".into(),
+                        },
+                    )),
+                )
                 .unwrap();
             expected.insert(id, marker);
         }
@@ -1581,6 +1589,7 @@ async fn deleted_history_rollback_restores_all_local_audio_markers_and_keeps_wav
             .into_iter()
             .map(|record| (record.id, record.has_audio_recording))
             .collect();
+        assert_eq!(fixture.repo.history.window_context_kinds().unwrap().len(), expected.len());
         assert_eq!(actual,expected,"rollback must preserve true, false and unknown receiver-only markers after rows were removed");
         assert_eq!(
             std::fs::read(recording.unwrap()).unwrap(),
@@ -1597,7 +1606,8 @@ async fn deleted_history_rollback_restores_all_local_audio_markers_and_keeps_wav
             .documents
             .iter()
             .filter(|doc| doc.kind == DocumentKind::History)
-            .all(|doc| doc.value["hasAudioRecording"] == false));
+            .all(|doc| doc.value["hasAudioRecording"] == false
+                && !doc.value.to_string().contains("local-window-attachment")));
         assert_eq!(fixture.store.generation().unwrap(), before.generation);
         assert!(!fixture.store.is_recovering());
     }
