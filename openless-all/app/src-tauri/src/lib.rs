@@ -548,6 +548,7 @@ macro_rules! app_invoke_handler_desktop {
             commands::sherpa_onnx_asr_delete_model,
             #[cfg(target_os = "windows")]
             commands::sherpa_onnx_asr_reveal_model_dir,
+            commands::debug_recent_asr_hotword_requests,
             commands::export_error_log,
             commands::debug_read_cursor_context,
             commands::debug_read_window_context,
@@ -729,6 +730,7 @@ macro_rules! app_invoke_handler_mobile {
             $crate::commands::request_microphone_permission,
             $crate::commands::open_system_settings,
             $crate::commands::trigger_microphone_prompt,
+            $crate::commands::debug_recent_asr_hotword_requests,
             $crate::commands::export_error_log,
             #[cfg(target_os = "android")]
             $crate::commands::export_error_log_to_downloads,

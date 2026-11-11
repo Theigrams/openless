@@ -161,6 +161,7 @@ impl CloudTranscriptionPreparation {
 }
 
 struct PreparedCloudTranscription {
+    session_id: SessionId,
     preparation: CloudTranscriptionPreparation,
     task_spawner: Arc<dyn TaskSpawner>,
 }
@@ -171,15 +172,17 @@ impl PreparedTranscription for PreparedCloudTranscription {
         partials: Arc<dyn TextStreamSink>,
     ) -> BoxFuture<'static, Result<Arc<dyn TranscriptionSession>, BackendError>> {
         let preparation = self.preparation.clone();
+        let session_id = self.session_id;
         let task_spawner = Arc::clone(&self.task_spawner);
         Box::pin(async move {
-            let (kind, asr_call_label) = build_cloud_transcription_session(
-                &preparation,
-                Arc::clone(&task_spawner),
-                partials,
+            let (kind, asr_call_label) = crate::asr_diagnostics::scope(
+                session_id,
+                preparation.effective_provider.clone(),
+                build_cloud_transcription_session(&preparation, Arc::clone(&task_spawner), partials),
             )
             .await?;
             Ok(Arc::new(CloudTranscriptionSession {
+                session_id,
                 kind,
                 asr_call_label,
                 finished: AtomicBool::new(false),
@@ -206,6 +209,7 @@ enum CloudTranscriptionSessionKind {
 }
 
 struct CloudTranscriptionSession {
+    session_id: SessionId,
     kind: CloudTranscriptionSessionKind,
     asr_call_label: crate::AsrCallLabel,
     finished: AtomicBool,
@@ -215,7 +219,7 @@ struct CloudTranscriptionSession {
 impl TranscriptionEngine for SharedCloudTranscriptionEngine {
     fn prepare(
         self: Arc<Self>,
-        _session_id: SessionId,
+        session_id: SessionId,
         context: Arc<DictationContext>,
     ) -> BoxFuture<'static, Result<Arc<dyn PreparedTranscription>, BackendError>> {
         let credentials = Arc::clone(&self.credentials);
@@ -223,6 +227,7 @@ impl TranscriptionEngine for SharedCloudTranscriptionEngine {
             let preparation =
                 prepare_cloud_transcription(credentials.as_ref(), Arc::clone(&context)).await?;
             Ok(Arc::new(PreparedCloudTranscription {
+                session_id,
                 preparation,
                 task_spawner: Arc::clone(&self.task_spawner),
             }) as Arc<dyn PreparedTranscription>)
@@ -284,7 +289,10 @@ impl TranscriptionSession for CloudTranscriptionSession {
         }
         let kind = self.kind.clone();
         let task_spawner = Arc::clone(&self.task_spawner);
-        Box::pin(async move {
+        let session_id = self.session_id;
+        let provider_id = self.asr_call_label.provider.clone();
+        let worker_provider_id = provider_id.clone();
+        let finish = async move {
             let transcript = match kind {
                 CloudTranscriptionSessionKind::Volcengine(provider) => {
                     let _ = provider.send_last_frame().await;
@@ -315,7 +323,10 @@ impl TranscriptionSession for CloudTranscriptionSession {
                     let worker = Arc::clone(&provider);
                     let (result_sender, result_receiver) = tokio::sync::oneshot::channel();
                     task_spawner.spawn(Box::pin(async move {
-                        let _ = result_sender.send(worker.transcribe().await);
+                        let result = crate::asr_diagnostics::scope(
+                            session_id, worker_provider_id, worker.transcribe(),
+                        ).await;
+                        let _ = result_sender.send(result);
                     }));
                     // Verify may drop finish on cancellation; the worker still owns file cleanup.
                     let mut cleanup = crate::asr::gemini::CancelOnDrop {
@@ -371,7 +382,8 @@ impl TranscriptionSession for CloudTranscriptionSession {
                 text: transcript.text,
                 duration_ms: transcript.duration_ms,
             })
-        })
+        };
+        Box::pin(crate::asr_diagnostics::scope(session_id, provider_id, finish))
     }
 
     fn cancel(&self) -> BoxFuture<'static, Result<(), BackendError>> {
@@ -769,7 +781,7 @@ async fn build_cloud_transcription_session(
                 .map_err(|message| BackendError::new(BackendErrorCode::InvalidArgument, message))?;
             let endpoint = non_blank_owned(endpoint)
                 .unwrap_or_else(|| crate::asr::gemini::DEFAULT_ENDPOINT.to_string());
-            let hotwords = context.polish.hotwords.clone();
+            let hotwords = context.asr_hotwords().to_vec();
             let kind = if effective_model == crate::asr::gemini_live::MODEL {
                 let config = crate::asr::gemini_live::GeminiLiveConfig {
                     api_key,
@@ -819,7 +831,9 @@ async fn build_cloud_transcription_session(
                 provider = provider.with_endpoint_path("/speech_to_text");
             }
             if crate::provider_rules::whisper_uses_hotwords(provider_type) {
-                provider = provider.with_hotwords(context.polish.hotwords.clone());
+                provider = provider.with_hotwords(crate::provider_rules::stepfun_batch_hotwords(
+                    context.asr_hotwords(),
+                ));
             }
             if provider_type == "zenmux" {
                 let language = context.asr.language.clone().or_else(|| {
@@ -868,8 +882,7 @@ async fn build_cloud_transcription_session(
                 resource_id: VolcengineCredentials::resolve_resource_id(resource_id),
             };
             let hotwords = context
-                .polish
-                .hotwords
+                .asr_hotwords()
                 .iter()
                 .cloned()
                 .map(|phrase| DictionaryHotword {

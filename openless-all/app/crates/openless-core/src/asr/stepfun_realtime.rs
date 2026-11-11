@@ -361,6 +361,10 @@ impl StepfunRealtimeASR {
             self.cancel();
             return Err(error);
         }
+        let hints = self.credentials.prompt.as_deref().map(str::trim).filter(|text| !text.is_empty());
+        crate::asr_diagnostics::record(
+            hints.map_or_else(|| json!({}), |prompt| json!({ "prompt": prompt })),
+        );
         let ready_result = if !self.state.lock().session_started {
             tokio::time::timeout(SESSION_READY_TIMEOUT, started)
                 .await

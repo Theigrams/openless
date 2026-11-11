@@ -370,6 +370,11 @@ impl GeminiBatchASR {
             .send()
             .await
             .context("Gemini Interactions API request failed")?;
+        crate::asr_diagnostics::record(if self.custom_vocabulary.is_empty() {
+            json!({})
+        } else {
+            json!({ "custom_vocabulary": self.custom_vocabulary })
+        });
         let status = response.status();
         let body = read_response_limited(response)
             .await

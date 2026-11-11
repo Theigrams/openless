@@ -165,6 +165,7 @@ impl DashScopeMultimodalASR {
             .send()
             .await
             .context("DashScope ASR HTTP request failed")?;
+        crate::asr_diagnostics::record(serde_json::json!({}));
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -265,6 +266,7 @@ impl DashScopeMultimodalASR {
             .send()
             .await
             .context("submit DashScope async ASR task")?;
+        crate::asr_diagnostics::record(serde_json::json!({}));
         let submitted = response_json(response, "DashScope async ASR submission").await?;
         let task_id = submitted
             .pointer("/output/task_id")

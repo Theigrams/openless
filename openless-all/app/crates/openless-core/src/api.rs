@@ -9422,13 +9422,13 @@ impl OpenLessBackend {
             .filter(|value| !value.trim().is_empty())
             .unwrap_or(&preferences.active_style_pack_id);
         let style_pack = self.style_packs.get_or_default_active(style_pack_id)?;
-        let hotwords = self
+        let vocabulary: Vec<_> = self
             .vocabulary
             .list()?
             .into_iter()
             .filter(|entry| entry.enabled)
-            .map(|entry| entry.phrase)
             .collect();
+        let hotwords = vocabulary.iter().map(|entry| entry.phrase.clone()).collect();
         // Auxiliary Voice (Selection / Less) and QA Voice respect multimodal
         // preferences. Skip unused traditional channels so a valid Omni route
         // is not blocked by missing ASR/LLM. QA text needs no microphone
@@ -9502,6 +9502,9 @@ impl OpenLessBackend {
             options,
         );
         context.pipeline_mode = pipeline_mode;
+        if purpose == DictationContextPurpose::Dictation && traditional {
+            context.set_asr_hotwords(crate::vocabulary::prioritize_vocabulary_for_asr(vocabulary));
+        }
         context.polish.window_context_requested = collect_window;
         if !traditional || context.uses_llm_polisher() {
             match window_context {
@@ -14478,9 +14481,11 @@ mod tests {
         preferences.translation_target_language = "English".to_string();
         preferences.working_languages = vec!["简体中文".to_string()];
         backend.set_preferences(preferences).unwrap();
-        backend
-            .add_vocabulary("OpenLess".to_string(), None)
-            .unwrap();
+        for phrase in ["OpenLess", "Slot1", "Slot2", "Slot3", "Slot4", "Slot5"] {
+            backend.add_vocabulary(phrase.to_string(), None).unwrap();
+        }
+        backend.add_learned_vocabulary("NURBS".to_string()).unwrap();
+        backend.record_vocabulary_hits("NURBS").unwrap();
 
         backend
             .start_dictation_with_options(DictationStartOptions {
@@ -14507,7 +14512,14 @@ mod tests {
         );
         assert_eq!(context.asr.provider_id, "local-qwen3");
         assert_eq!(context.asr.model.as_deref(), Some("qwen3-asr-1.7b"));
-        assert_eq!(context.asr.prompt.as_deref(), Some("OpenLess."));
+        assert_eq!(
+            context.asr.prompt.as_deref(),
+            Some("Slot5, Slot4, Slot3, Slot2, Slot1, NURBS, OpenLess."),
+        );
+        assert_eq!(
+            context.polish.hotwords,
+            vec!["Slot5", "Slot4", "Slot3", "Slot2", "Slot1", "OpenLess", "NURBS"],
+        );
         assert_eq!(context.polish.translation_target_language, "English");
         assert!(context.polish.translation_active);
         backend.shutdown().await.unwrap();

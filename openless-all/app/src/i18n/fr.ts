@@ -1371,6 +1371,11 @@ export const fr: typeof zhCN = {
       cursorLabel: 'Curseur',
       title: 'Outils de débogage',
       desc: 'Pour diagnostiquer les problèmes de reconnaissance ; désactivés par défaut.',
+      asrHotwordRequestsLabel: "Requêtes de mots-clés ASR",
+      asrHotwordRequestsDesc: "Affiche jusqu’à 20 requêtes distinctes de cette session. Un identifiant de vocabulaire renvoie à une liste du fournisseur.",
+      asrHotwordRequestsBtn: "Lire les requêtes récentes",
+      asrHotwordRequestsEmpty: "Aucune requête ASR enregistrée.",
+      asrHotwordRequestsNone: "Cette requête n’a envoyé aucun mot-clé.",
       cursorProbeLabel: 'Sonde du contexte du curseur',
       cursorProbeDesc:
         'Cliquez, puis passez à l’application cible et placez le curseur dans un champ avant la fin du décompte. La sonde lit le texte autour du curseur pour vérifier quelles applications sont lisibles et lesquelles sont bloquées par les protections. Une seule lecture, sans envoi à un fournisseur.',

@@ -184,6 +184,7 @@ impl WhisperBatchASR {
         let url = transcription_url(&self.base_url, self.endpoint_path.as_deref())?;
         let client = crate::net::http();
 
+        let mut hints = serde_json::Map::new();
         let request = match self.request_format {
             AsrRequestFormat::Multipart => {
                 let wav_part = reqwest::multipart::Part::bytes(wav)
@@ -211,6 +212,7 @@ impl WhisperBatchASR {
                     let trimmed = prompt.trim();
                     if !trimmed.is_empty() {
                         form = form.text("prompt", trimmed.to_string());
+                        hints.insert("prompt".into(), serde_json::json!(trimmed));
                     }
                 }
 
@@ -226,6 +228,7 @@ impl WhisperBatchASR {
                 if !hotwords.is_empty() {
                     if let Ok(encoded) = serde_json::to_string(&hotwords) {
                         form = form.text("hotwords", encoded);
+                        hints.insert("hotwords".into(), serde_json::json!(hotwords));
                     }
                 }
 
@@ -286,6 +289,7 @@ impl WhisperBatchASR {
             .send()
             .await
             .context("Whisper HTTP request failed")?;
+        crate::asr_diagnostics::record(serde_json::Value::Object(hints));
 
         if !resp.status().is_success() {
             let status = resp.status();

@@ -1336,6 +1336,11 @@ export const en: typeof zhCN = {
       cursorLabel: 'Cursor',
       title: 'Debug tools',
       desc: 'For troubleshooting recognition issues; off by default.',
+      asrHotwordRequestsLabel: "ASR hotword requests",
+      asrHotwordRequestsDesc: "Inspect the last 20 distinct hint payloads sent by cloud ASR during this app run. A vocabulary ID refers to a provider-side list.",
+      asrHotwordRequestsBtn: "Read recent requests",
+      asrHotwordRequestsEmpty: "No ASR requests recorded yet.",
+      asrHotwordRequestsNone: "This request sent no hotwords.",
       cursorProbeLabel: 'Cursor context probe',
       cursorProbeDesc:
         'Click, then switch to the target app and click into a text field before the countdown ends. The probe reads the text around your cursor there, so you can see which apps are readable and which the safety gate blocks. One read, sent to no provider.',

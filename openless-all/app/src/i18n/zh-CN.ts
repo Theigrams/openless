@@ -1274,6 +1274,11 @@ export const zhCN = {
       cursorLabel: '光标',
       title: '调试工具',
       desc: '排查识别问题时使用，平时无需开启。',
+      asrHotwordRequestsLabel: "ASR 热词请求",
+      asrHotwordRequestsDesc: "查看本次运行中最近 20 条不同的云端 ASR 热词请求。词表 ID 指向服务商的词表。",
+      asrHotwordRequestsBtn: "读取最近请求",
+      asrHotwordRequestsEmpty: "暂时没有 ASR 请求记录。",
+      asrHotwordRequestsNone: "这次请求未发送热词。",
       cursorProbeLabel: '光标上下文探针',
       cursorProbeDesc:
         '点一下，然后在倒计时内切到目标 app 并点进输入框——探针会读那里的光标附近原文，用来确认哪些 app 读得到、哪些被安全闸门拦住。只读一次，不发给任何服务商。',

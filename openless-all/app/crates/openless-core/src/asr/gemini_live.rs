@@ -72,6 +72,8 @@ impl GeminiLiveASR {
         let socket = tokio::time::timeout(CONNECT_TIMEOUT, session::connect(&config))
             .await
             .context("Gemini Live setup timed out")??;
+        let vocabulary = crate::asr::gemini::normalize_vocabulary(config.hotwords.clone());
+        crate::asr_diagnostics::record(serde_json::json!({ "custom_vocabulary": vocabulary }));
         let (sender, receiver) = mpsc::channel(QUEUE_FRAMES);
         let (result_tx, result_rx) = oneshot::channel();
         let (shutdown, cancelled) = watch::channel(None);

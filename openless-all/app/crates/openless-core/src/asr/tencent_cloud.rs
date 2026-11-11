@@ -188,6 +188,7 @@ impl TencentCloudSession {
             .await
             .map_err(|_| TencentCloudASRError::ConnectionFailed)?
             .map_err(|_| TencentCloudASRError::ConnectionFailed)?;
+        crate::asr_diagnostics::record(serde_json::json!({}));
         let (write, read) = ws.split();
         *self.writer.lock().await = Some(write);
 

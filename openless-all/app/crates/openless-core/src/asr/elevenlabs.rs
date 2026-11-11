@@ -120,6 +120,7 @@ impl ElevenLabsBatchASR {
             .send()
             .await
             .context("ElevenLabs ASR HTTP request failed")?;
+        crate::asr_diagnostics::record(serde_json::json!({}));
 
         let status = resp.status();
         let body = read_response_limited(resp).await?;

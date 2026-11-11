@@ -341,6 +341,10 @@ impl VolcengineStreamingASR {
             Some(first_seq),
         );
         send_binary(&self.writer, frame).await?;
+        let hints = payload_json["request"]["context"]
+            .as_str()
+            .and_then(|context| serde_json::from_str(context).ok());
+        crate::asr_diagnostics::record(hints.unwrap_or_else(|| json!({})));
 
         // Spawn the receive loop. Holds a Weak<Self> so it doesn't keep
         // the struct alive forever if callers drop their Arcs.
@@ -663,8 +667,6 @@ impl VolcengineStreamingASR {
         });
         if let Some(context) = hotword_context(&self.hotwords) {
             request["context"] = Value::String(context);
-            let enabled_count = self.hotwords.iter().filter(|h| h.enabled).count();
-            log::info!("[asr] hotwords injected: {}", enabled_count);
         }
         json!({
             "user": { "uid": connect_id },

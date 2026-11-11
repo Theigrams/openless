@@ -1354,6 +1354,11 @@ export const es: typeof zhCN = {
       cursorLabel: 'Cursor',
       title: 'Herramientas de depuración',
       desc: 'Para investigar problemas de reconocimiento. Desactivadas de forma predeterminada.',
+      asrHotwordRequestsLabel: "Solicitudes de palabras clave ASR",
+      asrHotwordRequestsDesc: "Muestra hasta 20 solicitudes distintas de esta sesión. Un ID de vocabulario apunta a una lista del proveedor.",
+      asrHotwordRequestsBtn: "Leer solicitudes recientes",
+      asrHotwordRequestsEmpty: "Aún no se registraron solicitudes ASR.",
+      asrHotwordRequestsNone: "Esta solicitud no envió palabras clave.",
       cursorProbeLabel: 'Comprobar contexto del cursor',
       cursorProbeDesc:
         'Pulsa y, antes de que termine la cuenta atrás, cambia a la aplicación de destino y selecciona un campo de texto. Se leerá el texto que rodea al cursor para comprobar qué aplicaciones permiten la lectura y cuáles bloquean las protecciones. Una sola lectura, sin enviarla a ningún proveedor.',

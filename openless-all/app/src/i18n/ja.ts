@@ -1319,6 +1319,11 @@ export const ja: typeof zhCN = {
       cursorLabel: 'カーソル',
       title: 'デバッグツール',
       desc: '認識の問題を調査するときに使用。通常はオフのままで構いません。',
+      asrHotwordRequestsLabel: "ASR ホットワードのリクエスト",
+      asrHotwordRequestsDesc: "今回の起動中に送信した異なるリクエストを最大20件表示します。語彙 ID はプロバイダー側のリストを指します。",
+      asrHotwordRequestsBtn: "最近のリクエストを読む",
+      asrHotwordRequestsEmpty: "ASR リクエストの記録はまだありません。",
+      asrHotwordRequestsNone: "このリクエストではホットワードを送信していません。",
       cursorProbeLabel: 'カーソル文脈プローブ',
       cursorProbeDesc:
         'クリックしたあと、カウントダウン中に対象アプリへ切り替えて入力欄をクリックしてください。そこのカーソル周辺の原文を読み取り、どのアプリが読めてどれが安全ゲートに阻まれるかを確認できます。読み取りは一度きりで、どのプロバイダにも送信しません。',

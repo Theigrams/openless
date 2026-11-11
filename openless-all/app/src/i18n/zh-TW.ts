@@ -1275,6 +1275,11 @@ export const zhTW: typeof zhCN = {
       cursorLabel: '游標',
       title: '除錯工具',
       desc: '排查辨識問題時使用，平時無需開啟。',
+      asrHotwordRequestsLabel: "ASR 熱詞請求",
+      asrHotwordRequestsDesc: "查看本次執行中最近 20 筆不同的雲端 ASR 熱詞請求。詞表 ID 指向服務商的詞表。",
+      asrHotwordRequestsBtn: "讀取最近請求",
+      asrHotwordRequestsEmpty: "暫時沒有 ASR 請求記錄。",
+      asrHotwordRequestsNone: "這次請求未傳送熱詞。",
       cursorProbeLabel: '遊標上下文探針',
       cursorProbeDesc:
         '點一下，然後在倒數內切到目標 app 並點進輸入框——探針會讀那裡的遊標附近原文，用來確認哪些 app 讀得到、哪些被安全閘門擋住。只讀一次，不送給任何服務商。',

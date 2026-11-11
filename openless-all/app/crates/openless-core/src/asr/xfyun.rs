@@ -185,6 +185,7 @@ impl XfyunStreamingASR {
                 ))
             })?
             .map_err(|e| XfyunASRError::ConnectionFailed(e.to_string()))?;
+        crate::asr_diagnostics::record(serde_json::json!({}));
         let (write, read) = ws.split();
         *self.writer.lock().await = Some(write);
 

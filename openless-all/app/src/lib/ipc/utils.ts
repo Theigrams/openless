@@ -101,3 +101,16 @@ export async function debugReadWindowScreenshot(delayMs: number): Promise<string
   const { invoke } = await import('@tauri-apps/api/core');
   return invoke('debug_read_window_screenshot', { delayMs });
 }
+
+
+export interface AsrHotwordRequest {
+  sessionId: string;
+  provider: string;
+  sentAt: string;
+  hints: Record<string, unknown>;
+}
+
+export async function debugRecentAsrHotwordRequests(): Promise<AsrHotwordRequest[]> {
+  if (isHarmonyHost) return [];
+  return invokeOrMock('debug_recent_asr_hotword_requests', undefined, () => []);
+}

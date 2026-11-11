@@ -325,6 +325,11 @@ impl BailianRealtimeASR {
         )
         .await?;
 
+        let vocabulary_id = self.credentials.vocabulary_id.as_deref().map(str::trim).filter(|id| !id.is_empty());
+        crate::asr_diagnostics::record(
+            vocabulary_id.map_or_else(|| json!({}), |id| json!({ "vocabulary_id": id })),
+        );
+
         let weak_self = Arc::downgrade(self);
         let task_spawner = Arc::clone(&self.task_spawner);
         task_spawner.spawn(Box::pin(async move {

@@ -293,6 +293,7 @@ impl Qwen3RealtimeASR {
             self.cancel();
             return Err(error);
         }
+        crate::asr_diagnostics::record(serde_json::json!({}));
         let ready_result = if !self.state.lock().session_started {
             tokio::time::timeout(SESSION_READY_TIMEOUT, started)
                 .await

@@ -114,6 +114,7 @@ impl MimoBatchASR {
             .send()
             .await
             .with_context(|| format!("{} ASR HTTP request failed", self.provider_name))?;
+        crate::asr_diagnostics::record(serde_json::json!({}));
 
         if !resp.status().is_success() {
             let status = resp.status();

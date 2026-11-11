@@ -370,6 +370,11 @@ pub async fn debug_read_cursor_context(
 
 /// Preview one foreground window snapshot locally using the dictation capture path.
 #[tauri::command]
+pub fn debug_recent_asr_hotword_requests() -> Vec<openless_core::asr_diagnostics::AsrHotwordRequest> {
+    openless_core::asr_diagnostics::recent_requests()
+}
+
+#[tauri::command]
 pub async fn debug_read_window_context(
     delay_ms: Option<u64>,
 ) -> crate::host_document::HostDocumentReadResult<openless_core::host_document::WindowContext> {

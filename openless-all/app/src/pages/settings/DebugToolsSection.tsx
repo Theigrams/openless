@@ -6,7 +6,14 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { debugReadCursorContext, debugReadWindowContext, debugReadWindowScreenshot, exportErrorLog } from '../../lib/ipc';
+import {
+  debugReadCursorContext,
+  debugReadWindowContext,
+  debugReadWindowScreenshot,
+  debugRecentAsrHotwordRequests,
+  exportErrorLog,
+  type AsrHotwordRequest,
+} from '../../lib/ipc';
 import { useMobileLayout } from '../../lib/useMobileLayout';
 import type { HostDocumentReadResult, WindowContextReadResult } from '../../lib/types';
 import { useHotkeySettings } from '../../state/HotkeySettingsContext';
@@ -32,6 +39,8 @@ export function DebugToolsSection({ showWindowProbe }: { showWindowProbe: boolea
   const { t } = useTranslation();
   const mobile = useMobileLayout();
   const { prefs, updatePrefs: savePrefs } = useHotkeySettings();
+  const [asrRequests, setAsrRequests] = useState<AsrHotwordRequest[] | null>(null);
+  const [asrError, setAsrError] = useState('');
   const [exportStatus, setExportStatus] = useState<'idle' | 'busy' | 'ok' | 'err'>('idle');
   const [exportMessage, setExportMessage] = useState<string>('');
   const exportTimerRef = useRef<number | null>(null);
@@ -114,6 +123,16 @@ export function DebugToolsSection({ showWindowProbe }: { showWindowProbe: boolea
         {probeError.message}
       </div>
     );
+
+  const onReadAsrRequests = async () => {
+    setAsrError('');
+    try {
+      setAsrRequests(await debugRecentAsrHotwordRequests());
+    } catch (error) {
+      setAsrRequests(null);
+      setAsrError(error instanceof Error ? error.message : String(error));
+    }
+  };
 
   const onExportLog = async () => {
     setExportStatus('busy');
@@ -306,6 +325,35 @@ export function DebugToolsSection({ showWindowProbe }: { showWindowProbe: boolea
           </div>
         </SettingRow>
       )}
+      <SettingRow
+        label={t('settings.debug.asrHotwordRequestsLabel')}
+        desc={t('settings.debug.asrHotwordRequestsDesc')}
+      >
+        <div style={{ display: 'grid', gap: 6, minWidth: 0 }}>
+          <div>
+            <Btn variant="ghost" size="sm" onClick={() => void onReadAsrRequests()}>
+              {t('settings.debug.asrHotwordRequestsBtn')}
+            </Btn>
+          </div>
+          {asrError && <div role="alert">{asrError}</div>}
+          {asrRequests?.length === 0 && <div>{t('settings.debug.asrHotwordRequestsEmpty')}</div>}
+          {!!asrRequests?.length && (
+            <div style={{ ...probeResultStyle, maxHeight: 300, overflowY: 'auto' }}>
+              {asrRequests.map((request, index) => (
+                <details key={`${request.sessionId}-${request.sentAt}-${index}`} open={index === 0}>
+                  <summary>{new Date(request.sentAt).toLocaleTimeString()} · {request.provider}</summary>
+                  <div style={{ color: 'var(--ol-ink-4)' }}>{request.sessionId}</div>
+                  {Object.keys(request.hints).length === 0
+                    ? <div>{t('settings.debug.asrHotwordRequestsNone')}</div>
+                    : <pre style={{ margin: 0, whiteSpace: 'pre-wrap' }}>
+                        {JSON.stringify(request.hints, null, 2)}
+                      </pre>}
+                </details>
+              ))}
+            </div>
+          )}
+        </div>
+      </SettingRow>
       <SettingRow label={t('modal.about.exportErrorLog')}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
           <Btn variant="ghost" size="sm" disabled={exportStatus === 'busy'} onClick={onExportLog}>

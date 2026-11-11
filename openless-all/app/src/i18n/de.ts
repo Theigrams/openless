@@ -1361,6 +1361,11 @@ export const de: typeof zhCN = {
       cursorLabel: 'Cursor',
       title: 'Diagnosewerkzeuge',
       desc: 'Zur Untersuchung von Erkennungsproblemen. Standardmäßig deaktiviert.',
+      asrHotwordRequestsLabel: "ASR-Hotword-Anfragen",
+      asrHotwordRequestsDesc: "Zeigt bis zu 20 unterschiedliche Hotword-Anfragen dieser App-Sitzung. Eine Vokabular-ID verweist auf eine Liste beim Anbieter.",
+      asrHotwordRequestsBtn: "Letzte Anfragen lesen",
+      asrHotwordRequestsEmpty: "Noch keine ASR-Anfragen erfasst.",
+      asrHotwordRequestsNone: "Diese Anfrage enthielt keine Hotwords.",
       cursorProbeLabel: 'Cursorkontext prüfen',
       cursorProbeDesc:
         'Klicke hier, wechsle dann zur Ziel-App und klicke vor Ablauf des Countdowns in ein Textfeld. Die Prüfung liest den Text rund um den Cursor. So erkennst du, welche Apps lesbar sind und welche die Schutzfunktion blockiert. Einmaliger Lesezugriff, ohne Übertragung an einen Anbieter.',

@@ -221,6 +221,7 @@ pub struct DictationContext {
     /// Runtime-only commands, captured only for voice-started dictation.
     pub voice_activation: Option<crate::voice_activation::VoiceActivationTextPolicy>,
     pub asr: ProviderInvocation,
+    pub(crate) asr_hotwords: Option<Vec<String>>,
     /// Local model a failed cloud ASR call is retried with, frozen at session
     /// start (see local_asr_fallback()); None when the fallback doesn't apply.
     pub asr_fallback: Option<ProviderInvocation>,
@@ -258,6 +259,15 @@ impl Default for DictationContext {
 }
 
 impl DictationContext {
+    pub(crate) fn set_asr_hotwords(&mut self, hotwords: Vec<String>) {
+        self.asr.prompt = build_asr_prompt(&hotwords);
+        self.asr_hotwords = Some(hotwords);
+    }
+
+    pub(crate) fn asr_hotwords(&self) -> &[String] {
+        self.asr_hotwords.as_deref().unwrap_or(&self.polish.hotwords)
+    }
+
     pub(crate) fn capture(
         preferences: &UserPreferences,
         style_pack: &StylePack,
@@ -383,6 +393,7 @@ impl DictationContext {
             correction_rules: Vec::new(),
             voice_activation: None,
             asr,
+            asr_hotwords: None,
             asr_fallback,
             llm,
             deferred_llm_error: None,

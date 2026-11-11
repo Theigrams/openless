@@ -1311,6 +1311,11 @@ export const ko: typeof zhCN = {
       cursorLabel: '커서',
       title: '디버그 도구',
       desc: '인식 문제를 진단할 때 사용합니다. 평소에는 꺼두어도 됩니다.',
+      asrHotwordRequestsLabel: "ASR 핫워드 요청",
+      asrHotwordRequestsDesc: "앱을 실행한 동안 보낸 서로 다른 요청을 최대 20개 표시합니다. 어휘 ID는 서비스 제공자의 목록을 가리킵니다.",
+      asrHotwordRequestsBtn: "최근 요청 읽기",
+      asrHotwordRequestsEmpty: "기록된 ASR 요청이 없습니다.",
+      asrHotwordRequestsNone: "이 요청은 핫워드를 보내지 않았습니다.",
       cursorProbeLabel: '커서 문맥 프로브',
       cursorProbeDesc:
         '누른 뒤 카운트다운 안에 대상 앱으로 전환해 입력란을 클릭하세요. 그곳의 커서 주변 원문을 읽어, 어떤 앱이 읽히고 어떤 앱이 안전 게이트에 막히는지 확인할 수 있습니다. 한 번만 읽으며 어떤 제공자에게도 보내지 않습니다.',

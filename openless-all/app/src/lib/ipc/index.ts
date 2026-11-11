@@ -274,10 +274,12 @@ export {
   openExternal,
   exportErrorLog,
   logClientError,
+  debugRecentAsrHotwordRequests,
   debugReadCursorContext,
   debugReadWindowContext,
   debugReadWindowScreenshot,
 } from './utils';
+export type { AsrHotwordRequest } from './utils';
 
 // Personal cloud backups use the native credential store and Core-owned data.
 export { cloudSyncStatus, cloudSyncUpload, cloudSyncRestore, cloudSyncDelete } from './cloud-sync';

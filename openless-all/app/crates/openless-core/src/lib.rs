@@ -8,6 +8,7 @@ pub mod activity;
 pub mod android_types;
 pub mod api;
 pub mod asr;
+pub mod asr_diagnostics;
 pub mod audio;
 pub mod audio_dsp;
 pub use audio_dsp::{AecMode, AudioDspConfig, AudioDspStage, NoiseReduction};

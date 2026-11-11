@@ -1131,6 +1131,23 @@ pub fn whisper_uses_hotwords(provider_id: &str) -> bool {
     provider_id == "stepfun"
 }
 
+/// StepFun's batch endpoint rejects a hotword list over 100 characters.
+pub(crate) fn stepfun_batch_hotwords(phrases: &[String]) -> Vec<String> {
+    let mut remaining = 100;
+    phrases
+        .iter()
+        .filter_map(|phrase| {
+            let phrase = phrase.trim();
+            let chars = phrase.chars().count();
+            if chars == 0 || chars > remaining {
+                return None;
+            }
+            remaining -= chars;
+            Some(phrase.to_owned())
+        })
+        .collect()
+}
+
 pub fn whisper_supports_verbose_json(provider_id: &str, advanced: AdvancedAsrConfig) -> bool {
     match provider_id {
         "whisper" | "groq" => true,
@@ -1180,6 +1197,14 @@ pub fn whisper_transcribe_timeout(audio_secs: f64) -> Duration {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn stepfun_batch_hotword_budget_preserves_order_and_whole_terms() {
+        let first = "术".repeat(96);
+        let words = vec![first.clone(), "OpenLess".into(), "  CNC  ".into(), "轴".into(), "尾".into()];
+        assert_eq!(super::stepfun_batch_hotwords(&words), vec![first, "CNC".into(), "轴".into()]);
+    }
+
     use super::*;
 
     #[test]
