@@ -1337,6 +1337,8 @@ export const de: typeof zhCN = {
       windowContextScreenshot: "Fensterbild",
       windowContextFallback: "Bei wenig Text ein Fensterbild verwenden",
       windowContextFallbackDesc: "Versucht ein Fensterbild, wenn weniger als {{count}} sichtbare Zeichen ohne Leerraum erfasst werden.",
+      windowContextTextLimit: "Zeichenlimit für Fenstertext",
+      windowContextTextLimitDesc: "Begrenzt den per Bedienungshilfe erfassten Fenstertext für das Modell (1–10.000 Zeichen).",
       windowContextScreenshotThreshold: "Schwelle für Fensterbilder (Zeichen ohne Leerraum)",
       windowContextScreenshotDesc: "Das verkleinerte Bild wird mit der aktuellen Anfrage an das gewählte Modell gesendet. Das Modell muss Bilder unterstützen, und macOS benötigt die Berechtigung zur Bildschirmaufnahme.",
       windowContextScreenPermission: "Berechtigung zur Bildschirmaufnahme",

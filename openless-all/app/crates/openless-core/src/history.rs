@@ -7,7 +7,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::config::{Clock, SystemClock};
 use crate::errors::{BackendError, BackendErrorCode};
-use crate::host_document::{WindowContext, WindowScreenshot, WINDOW_SCREENSHOT_MAX_BYTES};
+use crate::host_document::{
+    WindowContext, WindowScreenshot, WINDOW_CONTEXT_PROMPT_CHARS, WINDOW_SCREENSHOT_MAX_BYTES,
+};
 use crate::persistence::{atomic_write, persistence_error};
 use crate::types::{DictationSession, HistorySource};
 
@@ -28,7 +30,8 @@ impl HistoryWindowContext {
         image: Option<&WindowScreenshot>,
     ) -> Option<Self> {
         image.cloned().map(Self::Screenshot).or_else(|| {
-            text.and_then(WindowContext::for_prompt).map(Self::AccessibilityText)
+            text.and_then(|text| text.for_prompt(WINDOW_CONTEXT_PROMPT_CHARS as u32))
+                .map(Self::AccessibilityText)
         })
     }
 

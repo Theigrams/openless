@@ -1252,6 +1252,8 @@ export const zhCN = {
       windowContextScreenshot: "窗口截图",
       windowContextFallback: "文字不足时改用截图",
       windowContextFallbackDesc: "可见文字少于 {{count}} 个非空白字符时，尝试发送窗口截图。",
+      windowContextTextLimit: "窗口正文字符上限",
+      windowContextTextLimitDesc: "发送给模型的无障碍窗口文字最多保留这么多字符，可设置 1–10,000。",
       windowContextScreenshotThreshold: "截图阈值（非空白字符）",
       windowContextScreenshotDesc: "截图会等比缩小，并作为图片随当前请求发给所选模型。模型须支持图片输入，macOS 须授予屏幕录制权限。",
       windowContextScreenPermission: "屏幕录制权限",

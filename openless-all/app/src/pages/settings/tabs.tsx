@@ -618,17 +618,52 @@ function CursorContextSection() {
   );
 }
 
+function WindowContextNumberInput({
+  label,
+  value,
+  max,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  max: number;
+  onCommit: (next: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      min={1}
+      max={max}
+      step={1}
+      value={draft ?? value}
+      aria-label={label}
+      style={{ ...inputStyle, width: 88, textAlign: 'right' }}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={(event) => {
+        const entered = event.currentTarget.valueAsNumber;
+        setDraft(null);
+        if (!Number.isFinite(entered)) return;
+        const next = Math.max(1, Math.min(max, Math.round(entered)));
+        if (next !== value) onCommit(next);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') event.currentTarget.blur();
+      }}
+    />
+  );
+}
+
 function WindowContextSection() {
   const { t } = useTranslation();
   const { prefs, updatePrefs } = useHotkeySettings();
   const platformCaps = usePlatformCaps();
-  const [thresholdDraft, setThresholdDraft] = useState<string | null>(null);
   if (!prefs || platformCaps?.platform !== 'desktop' || detectOS() !== 'mac') return null;
   const mode = prefs.windowContextCaptureMode;
   const screenshot = mode === 'screenshot';
   const fallback = mode === 'textWithScreenshotFallback';
   const threshold = prefs.windowContextScreenshotThreshold;
-  const maxThreshold = 3500;
+  const textLimitLabel = t('settings.dataStorage.windowContextTextLimit');
   const thresholdLabel = t('settings.dataStorage.windowContextScreenshotThreshold');
 
   return (
@@ -664,6 +699,21 @@ function WindowContextSection() {
           </SettingRow>
           {!screenshot && (
             <SettingRow
+              label={textLimitLabel}
+              desc={t('settings.dataStorage.windowContextTextLimitDesc')}
+            >
+              <WindowContextNumberInput
+                label={textLimitLabel}
+                value={prefs.windowContextTextLimit}
+                max={10000}
+                onCommit={(next) =>
+                  void updatePrefs((current) => ({ ...current, windowContextTextLimit: next }))
+                }
+              />
+            </SettingRow>
+          )}
+          {!screenshot && (
+            <SettingRow
               label={t('settings.dataStorage.windowContextFallback')}
               desc={t('settings.dataStorage.windowContextFallbackDesc', { count: threshold })}
             >
@@ -680,29 +730,15 @@ function WindowContextSection() {
           )}
           {fallback && (
             <SettingRow label={thresholdLabel}>
-              <input
-                type="number"
-                min={1}
-                max={maxThreshold}
-                step={1}
-                value={thresholdDraft ?? threshold}
-                aria-label={thresholdLabel}
-                style={{ ...inputStyle, width: 88, textAlign: 'right' }}
-                onChange={(event) => setThresholdDraft(event.target.value)}
-                onBlur={(event) => {
-                  const value = event.currentTarget.valueAsNumber;
-                  setThresholdDraft(null);
-                  if (!Number.isFinite(value)) return;
-                  const next = Math.max(1, Math.min(maxThreshold, Math.round(value)));
-                  if (next !== threshold) {
-                    void updatePrefs((current) => ({
-                      ...current, windowContextScreenshotThreshold: next,
-                    }));
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') event.currentTarget.blur();
-                }}
+              <WindowContextNumberInput
+                label={thresholdLabel}
+                value={threshold}
+                max={3500}
+                onCommit={(next) =>
+                  void updatePrefs((current) => ({
+                    ...current, windowContextScreenshotThreshold: next,
+                  }))
+                }
               />
             </SettingRow>
           )}

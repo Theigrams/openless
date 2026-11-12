@@ -1348,6 +1348,8 @@ export const fr: typeof zhCN = {
       windowContextScreenshot: "Capture de la fenêtre",
       windowContextFallback: "Utiliser une capture si le texte est court",
       windowContextFallbackDesc: "Essaie une capture si le texte visible contient moins de {{count}} caractères hors espaces.",
+      windowContextTextLimit: "Limite de caractères du texte de la fenêtre",
+      windowContextTextLimitDesc: "Limite le texte accessible de la fenêtre envoyé au modèle (1 à 10 000 caractères).",
       windowContextScreenshotThreshold: "Seuil de capture (caractères hors espaces)",
       windowContextScreenshotDesc: "L’image redimensionnée accompagne la requête envoyée au modèle sélectionné. Le modèle doit accepter les images et macOS exige une autorisation de capture d’écran.",
       windowContextScreenPermission: "Autorisation de capture d’écran",

@@ -1288,6 +1288,8 @@ export const ko: typeof zhCN = {
       windowContextScreenshot: "창 스크린샷",
       windowContextFallback: "텍스트가 적을 때 스크린샷 사용",
       windowContextFallbackDesc: "표시 텍스트가 공백을 제외하고 {{count}}자 미만이면 창 캡처를 시도합니다.",
+      windowContextTextLimit: "창 텍스트 글자 수 제한",
+      windowContextTextLimitDesc: "접근성 기능으로 읽어 모델에 보내는 창 텍스트의 글자 수를 제한합니다(1~10,000자).",
       windowContextScreenshotThreshold: "스크린샷 전환 기준 (공백 제외 글자 수)",
       windowContextScreenshotDesc: "크기를 줄인 이미지가 현재 요청과 함께 선택한 모델로 전송됩니다. 이미지 입력을 지원하는 모델과 macOS 화면 기록 권한이 필요합니다.",
       windowContextScreenPermission: "화면 기록 권한",

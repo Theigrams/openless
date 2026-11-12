@@ -580,6 +580,7 @@ export interface UserPreferences {
   cursorContextEnabled: boolean;
   windowContextEnabled: boolean;
   windowContextCaptureMode: 'text' | 'textWithScreenshotFallback' | 'screenshot';
+  windowContextTextLimit: number;
   windowContextScreenshotThreshold: number;
   vocabularyLearningEnabled: boolean;
   expressionLearningEnabled: boolean;

@@ -49,6 +49,10 @@ fn default_window_context_screenshot_threshold() -> u32 {
     crate::host_document::DEFAULT_WINDOW_SCREENSHOT_THRESHOLD
 }
 
+fn default_window_context_text_limit() -> u32 {
+    crate::host_document::DEFAULT_WINDOW_CONTEXT_TEXT_LIMIT
+}
+
 fn default_pipeline_mode() -> PipelineMode {
     PipelineMode::Traditional
 }
@@ -849,6 +853,8 @@ pub struct UserPreferences {
     pub window_context_enabled: bool,
     #[serde(default)]
     pub window_context_capture_mode: crate::host_document::WindowCaptureMode,
+    #[serde(default = "default_window_context_text_limit")]
+    pub window_context_text_limit: u32,
     #[serde(default = "default_window_context_screenshot_threshold")]
     pub window_context_screenshot_threshold: u32,
     /// Observe corrections locally after insertion; independent of LLM context.
@@ -1247,6 +1253,8 @@ struct UserPreferencesWire {
     window_context_enabled: bool,
     #[serde(default)]
     window_context_capture_mode: crate::host_document::WindowCaptureMode,
+    #[serde(default = "default_window_context_text_limit")]
+    window_context_text_limit: u32,
     #[serde(default = "default_window_context_screenshot_threshold")]
     window_context_screenshot_threshold: u32,
     #[serde(default)]
@@ -1460,6 +1468,7 @@ impl Default for UserPreferencesWire {
             cursor_context_enabled: prefs.cursor_context_enabled,
             window_context_enabled: prefs.window_context_enabled,
             window_context_capture_mode: prefs.window_context_capture_mode,
+            window_context_text_limit: prefs.window_context_text_limit,
             window_context_screenshot_threshold: prefs.window_context_screenshot_threshold,
             vocabulary_learning_enabled: prefs.vocabulary_learning_enabled,
             expression_learning_enabled: prefs.expression_learning_enabled,
@@ -1705,6 +1714,9 @@ impl<'de> Deserialize<'de> for UserPreferences {
             cursor_context_enabled: wire.cursor_context_enabled,
             window_context_enabled: wire.window_context_enabled,
             window_context_capture_mode: wire.window_context_capture_mode,
+            window_context_text_limit: crate::host_document::clamp_window_context_text_limit(
+                wire.window_context_text_limit,
+            ),
             window_context_screenshot_threshold: crate::host_document::clamp_window_screenshot_threshold(
                 wire.window_context_screenshot_threshold,
             ),
@@ -2096,6 +2108,7 @@ impl Default for UserPreferences {
             window_context_enabled: false,
             window_context_capture_mode: Default::default(),
             window_context_screenshot_threshold: default_window_context_screenshot_threshold(),
+            window_context_text_limit: default_window_context_text_limit(),
             vocabulary_learning_enabled: false,
             expression_learning_enabled: false,
             vocabulary_learning_settings: VocabularyLearningSettings::default(),
@@ -3785,6 +3798,24 @@ mod tests {
         let disabled: UserPreferences =
             serde_json::from_str(r#"{"cursorContextEnabled":false}"#).unwrap();
         assert!(!disabled.cursor_context_enabled);
+    }
+
+    #[test]
+    fn window_context_text_limit_defaults_and_round_trips() {
+        let defaults: UserPreferences = serde_json::from_str("{}").unwrap();
+        assert_eq!(defaults.window_context_text_limit, 3500);
+
+        for (input, expected) in [(0, 1), (1800, 1800), (12000, 10000)] {
+            let prefs: UserPreferences = serde_json::from_value(serde_json::json!({
+                "windowContextTextLimit": input,
+            }))
+            .unwrap();
+            assert_eq!(prefs.window_context_text_limit, expected);
+            assert_eq!(
+                serde_json::to_value(prefs).unwrap()["windowContextTextLimit"],
+                expected
+            );
+        }
     }
 
     #[test]

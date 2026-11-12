@@ -1296,6 +1296,8 @@ export const ja: typeof zhCN = {
       windowContextScreenshot: "ウィンドウのスクリーンショット",
       windowContextFallback: "テキストが少ない場合はスクリーンショットを使用",
       windowContextFallbackDesc: "表示テキストが空白を除いて{{count}}文字未満の場合、ウィンドウのキャプチャを試みます。",
+      windowContextTextLimit: "ウィンドウのテキスト文字数上限",
+      windowContextTextLimitDesc: "アクセシビリティから取得してモデルに送るテキストの文字数を制限します（1〜10,000 文字）。",
       windowContextScreenshotThreshold: "スクリーンショットのしきい値（空白を除く文字数）",
       windowContextScreenshotDesc: "縮小画像を今回のリクエストと一緒に選択したモデルへ送信します。画像入力対応のモデルと、macOSの画面収録の許可が必要です。",
       windowContextScreenPermission: "画面収録の許可",

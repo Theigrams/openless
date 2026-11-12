@@ -1252,6 +1252,8 @@ export const zhTW: typeof zhCN = {
       windowContextScreenshot: "視窗截圖",
       windowContextFallback: "文字不足時改用截圖",
       windowContextFallbackDesc: "可見文字少於 {{count}} 個非空白字元時，嘗試傳送視窗截圖。",
+      windowContextTextLimit: "視窗正文的字元上限",
+      windowContextTextLimitDesc: "限制傳送給模型的輔助使用視窗文字，可設定為 1–10,000 個字元。",
       windowContextScreenshotThreshold: "截圖門檻（非空白字元）",
       windowContextScreenshotDesc: "截圖會等比例縮小，並隨目前請求以圖片傳送給所選模型。模型須支援圖片輸入，macOS 須授予螢幕錄製權限。",
       windowContextScreenPermission: "螢幕錄製權限",

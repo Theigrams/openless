@@ -140,6 +140,7 @@ export let mockSettings: UserPreferences = {
   cursorContextEnabled: true,
   windowContextEnabled: false,
   windowContextCaptureMode: 'text',
+  windowContextTextLimit: 3500,
   windowContextScreenshotThreshold: 300,
   vocabularyLearningEnabled: false,
   expressionLearningEnabled: false,

@@ -9508,7 +9508,11 @@ impl OpenLessBackend {
         context.polish.window_context_requested = collect_window;
         if !traditional || context.uses_llm_polisher() {
             match window_context {
-                Some(crate::host_document::WindowCapture::Text(text)) => context.polish.window_context = Some(text),
+                Some(crate::host_document::WindowCapture::Text(text)) => {
+                    // Apply the send limit after the host has chosen text or screenshot.
+                    context.polish.window_context =
+                        text.for_prompt(preferences.window_context_text_limit);
+                }
                 Some(crate::host_document::WindowCapture::Screenshot(image)) => context.polish.window_screenshot = Some(image),
                 None => {}
             }
@@ -10137,7 +10141,7 @@ mod tests {
                 Some(crate::host_document::WindowContext {
                     title: Some("Fixture chat".into()),
                     domain: None,
-                    visible_text: "Previous message refers to QuartzEdge".into(),
+                    visible_text: "Previous message refers to QuartzEdge。窗口正文剩余部分".into(),
                 })
             })
         }
@@ -13823,6 +13827,7 @@ mod tests {
         preferences.window_context_capture_mode =
             crate::host_document::WindowCaptureMode::TextWithScreenshotFallback;
         preferences.window_context_screenshot_threshold = 900;
+        preferences.window_context_text_limit = 39;
         backend.set_preferences(preferences).unwrap();
         let window_only = backend
             .capture_dictation_context(&DictationStartOptions::default(), DictationContextPurpose::Dictation)
@@ -13831,10 +13836,16 @@ mod tests {
         assert_eq!(host_context.2.load(Ordering::Acquire), 1);
         assert_eq!(host_context.3.load(Ordering::Acquire), 900);
         assert!(window_only.polish.cursor_context.is_none());
+        assert_eq!(
+            window_only.polish.window_context.as_ref().unwrap().visible_text,
+            "Previous message refers to QuartzEdge。窗"
+        );
         let (system, user) = window_only.effective_polish_prompts("current speech");
         assert!(!system.contains("QuartzEdge"));
         assert!(user.contains("<window_context>"));
         assert!(user.contains("QuartzEdge"));
+        assert!(user.contains("QuartzEdge。窗"));
+        assert!(!user.contains("口正文剩余部分"));
 
         let mut preferences = backend.get_preferences();
         preferences.window_context_enabled = false;

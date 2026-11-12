@@ -17,8 +17,13 @@ pub use window::{
 };
 
 pub const WINDOW_CONTEXT_PROMPT_CHARS: usize = 10_000;
+pub const DEFAULT_WINDOW_CONTEXT_TEXT_LIMIT: u32 = 3_500;
 const MAX_WINDOW_SCREENSHOT_THRESHOLD: u32 = 3_500;
 pub const DEFAULT_WINDOW_SCREENSHOT_THRESHOLD: u32 = 300;
+
+pub fn clamp_window_context_text_limit(limit: u32) -> u32 {
+    limit.clamp(1, WINDOW_CONTEXT_PROMPT_CHARS as u32)
+}
 
 pub fn clamp_window_screenshot_threshold(threshold: u32) -> u32 {
     threshold.clamp(1, MAX_WINDOW_SCREENSHOT_THRESHOLD)
@@ -97,15 +102,20 @@ pub struct WindowContext {
 }
 
 impl WindowContext {
-    pub(crate) fn for_prompt(&self) -> Option<Self> {
-        let visible_text: String = self.visible_text.trim().chars().take(WINDOW_CONTEXT_PROMPT_CHARS).collect();
+    pub(crate) fn for_prompt(&self, text_limit: u32) -> Option<Self> {
+        let visible_text = self.visible_text.trim();
+        let end = visible_text
+            .char_indices()
+            .nth(clamp_window_context_text_limit(text_limit) as usize)
+            .map_or(visible_text.len(), |(index, _)| index);
+        let visible_text = visible_text[..end].trim_end();
         if visible_text.is_empty() {
             return None;
         }
         Some(Self {
             title: self.title.as_deref().map(|title| title.chars().take(256).collect()),
             domain: self.domain.as_deref().map(|domain| domain.chars().take(253).collect()),
-            visible_text,
+            visible_text: visible_text.to_owned(),
         })
     }
 }

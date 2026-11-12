@@ -1313,6 +1313,8 @@ export const en: typeof zhCN = {
       windowContextScreenshot: "Window screenshot",
       windowContextFallback: "Use screenshot when text is sparse",
       windowContextFallbackDesc: "Try a window screenshot when visible text has fewer than {{count}} non-whitespace characters.",
+      windowContextTextLimit: "Window text character limit",
+      windowContextTextLimitDesc: "Send up to this many characters of accessible window text to the model (1–10,000).",
       windowContextScreenshotThreshold: "Screenshot threshold (non-whitespace characters)",
       windowContextScreenshotDesc: "The resized image accompanies the current request to your selected model. The model must accept images, and macOS requires Screen Recording permission.",
       windowContextScreenPermission: "Screen Recording permission",
